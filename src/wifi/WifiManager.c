@@ -1,5 +1,6 @@
 #include "WifiManager.h"
 #include "common/SharedState.h"
+#include "ble/BleManager.h"
 #include <string.h>
 #include <stdio.h>
 #include "esp_wifi.h"
@@ -13,9 +14,9 @@
 static const char* TAG = "WifiManager";
 
 // ========== CONFIGURATION ==========
-static const char* targetSSID = "Livebox";  // Set your target SSID
-static const char* targetBSSID = "MAC";                 // Optional: specific BSSID (lowercase)
-uint8_t targetChannel = 6;               // WiFi channel (1-13)
+static char targetSSID[96] = {0};  // Set your target SSID
+static char targetBSSID[18] = {0};                 // Optional: specific BSSID (lowercase)
+uint8_t targetChannel = -1;               // WiFi channel (1-13)
 bool filterBySSID = true;                // Enable SSID filtering
 bool showBeacons = true;                 // Show beacon frames
 bool showData = true;                    // Show data frames
@@ -147,10 +148,15 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   macToString(hdr->addr2, src);
   macToString(hdr->addr1, dst);
   macToString(hdr->addr3, bssid);
-  
-  ESP_LOGI(TAG, "[%7lu] RSSI:%3d CH:%2d %10s SRC:%s DST:%s BSSID:%s",
+
+  char result[256];
+  snprintf(result, sizeof(result), "LOG|msg=[%7lu] RSSI:%3d CH:%2d %10s SRC:%s DST:%s BSSID:%s",
           filteredPackets, pkt->rx_ctrl.rssi, pkt->rx_ctrl.channel,
           getFrameType(frameType, frameSubtype), src, dst, bssid);
+  
+  ESP_LOGI(TAG, "%s", result);
+
+  BleManager_SendStatus(result);
   
   // Show SSID for beacons/probe responses
   if (frameSubtype == 8 || frameSubtype == 5) {
@@ -161,16 +167,79 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   }
 }
 
+bool setWifiParameters(const char *ssid, const char *bssid, int channel){
+    // Validate channel
+    if (channel < 1 || channel > 13) {
+        ESP_LOGE(TAG, "Invalid channel: %d", channel);
+        return false;
+    }
 
-void startWiFiSniffer() {
-  if(snifferActive) return;
+    // ESP_LOGI(TAG,"Channel: %d", channel);
 
-    // Enable promiscuous mode
-  esp_wifi_set_promiscuous(true);
-  snifferActive = true;
-  
-  ESP_LOGI(TAG, "WiFi Sniffer STARTED");
-  lastStatsTime = esp_timer_get_time() / 1000;
+    // Copy SSID (optional)
+    if (ssid && ssid[0] != '\0') {
+        strncpy(targetSSID, ssid, sizeof(targetSSID) - 1);
+        targetSSID[sizeof(targetSSID) - 1] = '\0';
+    } else {
+        targetSSID[0] = '\0';
+    }
+
+    // Copy BSSID (optional)
+    if (bssid && bssid[0] != '\0') {
+        if (strlen(bssid) != 17) {
+            ESP_LOGE(TAG, "Invalid BSSID format: %s", bssid);
+            return false;
+        }
+        strncpy(targetBSSID, bssid, sizeof(targetBSSID) - 1);
+        targetBSSID[sizeof(targetBSSID) - 1] = '\0';
+    } else {
+        targetBSSID[0] = '\0';
+    }
+
+    targetChannel = channel;
+
+    ESP_LOGI(TAG,
+        "WiFi params set: SSID='%s', BSSID='%s', CH=%d",
+        targetSSID,
+        targetBSSID,
+        targetChannel
+    );
+
+    return true;
+}
+
+
+bool startWiFiSniffer(const char *ssid, const char *bssid, int channel)
+{
+    if (snifferActive) {
+        ESP_LOGW(TAG, "Sniffer already running");
+        return false;
+    }
+
+    if (!setWifiParameters(ssid, bssid, channel)) {
+        ESP_LOGE(TAG, "Sniffer start aborted (bad parameters)");
+        return false;
+    }
+
+    esp_err_t err;
+
+    err = esp_wifi_set_channel(targetChannel, WIFI_SECOND_CHAN_NONE);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set channel: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    err = esp_wifi_set_promiscuous(true);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable promiscuous: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    snifferActive = true;
+    lastStatsTime = esp_timer_get_time() / 1000;
+
+    ESP_LOGI(TAG, "WiFi Sniffer STARTED");
+    return true;
 }
 
 void stopWiFiSniffer() {
@@ -199,9 +268,9 @@ void printWiFiStats() {
 void WifiManager_Init() {
 
     ESP_LOGI(TAG, "Initializing WiFi Sniffer...");
-    ESP_LOGI(TAG, "Target SSID: %s", targetSSID);
-    ESP_LOGI(TAG, "Target BSSID: %s", targetBSSID);
-    ESP_LOGI(TAG, "Channel: %d", targetChannel);
+    // ESP_LOGI(TAG, "Target SSID: %s", targetSSID);
+    // ESP_LOGI(TAG, "Target BSSID: %s", targetBSSID);
+    // ESP_LOGI(TAG, "Channel: %d", targetChannel);
     ESP_LOGI(TAG, "Filters: Beacons=%d Data=%d Control=%d",
              showBeacons, showData, showControl);
 

@@ -3,6 +3,7 @@
 #include "wifi/WifiManager.h"
 #include "wifi/DeauthAttack.h"
 #include "blinking/blink.h"
+#include "command/command.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -354,9 +355,10 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
 
             if (param->write.handle == cmd_handle) {
                 // Safely handle command
-                char cmd[64] = {0};
-                size_t len = param->write.len < 63 ? param->write.len : 63;
+                char cmd[256] = {0};
+                size_t len = param->write.len < sizeof(cmd) - 1 ? param->write.len : sizeof(cmd) - 1;
                 memcpy(cmd, param->write.value, len);
+                cmd[len] = '\0';
                 
                 ESP_LOGI(TAG, "CMD received: %s", cmd);
                 
@@ -364,44 +366,45 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
                 receiveCommandBlink();
 
                 // Process commands
-                if (strcmp(cmd, "START") == 0) {
-                    ESP_LOGI(TAG, "Starting WiFi sniffer...");
-                    startWiFiSniffer();
-                    BleManager_SendStatus("STARTED");
-                } else if (strcmp(cmd, "STOP") == 0) {
-                    ESP_LOGI(TAG, "Stopping WiFi sniffer...");
-                    stopWiFiSniffer();
-                    BleManager_SendStatus("STOPPED");
-                } else if (strcmp(cmd, "test") == 0) {
-                    ESP_LOGI(TAG, "Test command received");
-                    BleManager_SendStatus("TEST_OK");
-                } else if (strcmp(cmd, "DEAUTH") == 0) {
-                    if(!isAttackActive){
-                        ESP_LOGI(TAG, "Starting deauth attack...");
+                // if (strcmp(cmd, "START") == 0) {
+                //     ESP_LOGI(TAG, "Starting WiFi sniffer...");
+                //     startWiFiSniffer();
+                //     BleManager_SendStatus("STARTED");
+                // } else if (strcmp(cmd, "STOP") == 0) {
+                //     ESP_LOGI(TAG, "Stopping WiFi sniffer...");
+                //     stopWiFiSniffer();
+                //     BleManager_SendStatus("STOPPED");
+                // } else if (strcmp(cmd, "test") == 0) {
+                //     ESP_LOGI(TAG, "Test command received");
+                //     BleManager_SendStatus("TEST_OK");
+                // } else if (strcmp(cmd, "DEAUTH") == 0) {
+                //     if(!isAttackActive){
+                //         ESP_LOGI(TAG, "Starting deauth attack...");
 
-                        // Set isAttackActive to true
-                        isAttackActive = true;
+                //         // Set isAttackActive to true
+                //         isAttackActive = true;
                     
-                        // Stop sniffer to free up WiFi resources
-                        extern void stopWiFiSniffer(void);
-                        stopWiFiSniffer();
+                //         // Stop sniffer to free up WiFi resources
+                //         extern void stopWiFiSniffer(void);
+                //         stopWiFiSniffer();
                         
-                        vTaskDelay(pdMS_TO_TICKS(200));  // Let WiFi stabilize
+                //         vTaskDelay(pdMS_TO_TICKS(200));  // Let WiFi stabilize
                         
-                        start_deauth_attack(200);  // Send 50 bursts = 300 packets
+                //         start_deauth_attack(200);  // Send 50 bursts = 300 packets
                         
-                        BleManager_SendStatus("DEAUTH_OK");
-                    } else {
-                        ESP_LOGI(TAG, "Another attack is already active.");
-                        ESP_LOGI(TAG, "Could not launch deauth attack. Retry later...");
+                //         BleManager_SendStatus("DEAUTH_OK");
+                //     } else {
+                //         ESP_LOGI(TAG, "Another attack is already active.");
+                //         ESP_LOGI(TAG, "Could not launch deauth attack. Retry later...");
 
-                        BleManager_SendStatus("DEAUTH_NOT_OK");
-                    }
+                //         BleManager_SendStatus("DEAUTH_NOT_OK");
+                //     }
                     
-                } else {
-                    ESP_LOGW(TAG, "Unknown command: %s", cmd);
-                    BleManager_SendStatus("UNKNOWN_CMD");
-                }
+                // } else {
+                //     ESP_LOGW(TAG, "Unknown command: %s", cmd);
+                //     BleManager_SendStatus("UNKNOWN_CMD");
+                // }
+                handle_command(cmd);
             }
             
             // CRITICAL: Send response for CCCD and CMD writes
@@ -411,7 +414,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
                                            param->write.trans_id,
                                            ESP_GATT_OK,
                                            NULL);
-                ESP_LOGI(TAG, "✅ Write response sent");
+                ESP_LOGI(TAG, "Write response sent");
             }
             break;
 
@@ -449,9 +452,9 @@ void BleManager_SendStatus(const char *msg) {
                                                 (uint8_t*)msg, false);
     
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "✅ Status sent: %s", msg);
+        ESP_LOGI(TAG, "Status sent: %s", msg);
     } else {
-        ESP_LOGE(TAG, "❌ Send indicate failed: %s (0x%x)", esp_err_to_name(ret), ret);
+        ESP_LOGE(TAG, "Send indicate failed: %s (0x%x)", esp_err_to_name(ret), ret);
     }
 }
 
@@ -474,12 +477,12 @@ void bleSenderTask(void* param) {
 
             add_seen_mac(macStr);
 
-            char payload[32];
+            char payload[64];
             snprintf(payload, sizeof(payload),
-                    "%s,%d,%d",
-                    macStr, evt.rssi, evt.channel);
+                "MAC|mac=%s|rssi=%d|ch=%d",
+                macStr, evt.rssi, evt.channel);
 
-
+            ESP_LOGI(TAG, "BLE NOTIFY: %s", payload);
 
             esp_err_t err = esp_ble_gatts_send_indicate(
                 gatt_if_global,
@@ -551,7 +554,7 @@ void BleManager_Init()
         return;
     }
 
-    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(64);
+    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(128);
     if (local_mtu_ret){
         ESP_LOGE(TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
     }
