@@ -17,10 +17,6 @@ static const char* TAG = "WifiManager";
 static char targetSSID[96] = {0};  // Set your target SSID
 static char targetBSSID[18] = {0};                 // Optional: specific BSSID (lowercase)
 uint8_t targetChannel = -1;               // WiFi channel (1-13)
-bool filterBySSID = true;                // Enable SSID filtering
-bool showBeacons = true;                 // Show beacon frames
-bool showData = true;                    // Show data frames
-bool showControl = false;                // Show control frames
 
 // ========== PACKET STATISTICS ==========
 unsigned long lastStatsTime = 0;
@@ -100,54 +96,30 @@ bool macMatches(const uint8_t* mac, const char* target) {
     return true;
 }
 
-// ========== SNIFFER CALLBACK ==========
-void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
-  if(!snifferActive) return;
-  totalPackets = filteredPackets + 1;
-  
-  wifi_promiscuous_pkt_t *pkt = (wifi_promiscuous_pkt_t*)buf;
+void logDevice(wifi_promiscuous_pkt_t *pkt, uint8_t *actualBSSID, uint8_t *clientMAC) {
+  // Retrieve structure
   const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t*)pkt->payload;
   const wifi_ieee80211_mac_hdr_t *hdr = &ipkt->hdr;
 
-  mac_event_t evt;
-  memcpy(evt.mac, hdr->addr2, 6);
-  evt.rssi = pkt->rx_ctrl.rssi;
-  evt.channel = pkt->rx_ctrl.channel;
-
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  xQueueSendFromISR(macQueue, &evt, &xHigherPriorityTaskWoken);
-
-  
   uint16_t frameCtrl = hdr->frame_ctrl;
   uint8_t frameType = (frameCtrl & 0x0C) >> 2;
   uint8_t frameSubtype = (frameCtrl & 0xF0) >> 4;
-  
-  // Apply frame type filters
-  if (frameType == 0 && !showBeacons && (frameSubtype == 8 || frameSubtype == 5)) return;
-  if (frameType == 2 && !showData) return;
-  if (frameType == 1 && !showControl) return;
-  
-  // Optional BSSID filter
-  if (strlen(targetBSSID) > 0 && !macMatches(hdr->addr3, targetBSSID)) {
-    return;
-  }
-  
-  // SSID filtering for beacons and probe responses
-  if (filterBySSID && (frameSubtype == 8 || frameSubtype == 5)) {
-    char ssid[33] = {0};
-    int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
-    if (ssidLen == 0 || strcmp(ssid, targetSSID) != 0) {
-      return;
-    }
-  }
-  
-  filteredPackets = filteredPackets + 1;
+
+  // Increment filteredPacket
+  filteredPackets++;
+
+  mac_event_t evt;
+  memcpy(evt.mac, clientMAC, 6);  // Use passed client MAC
+  evt.rssi = pkt->rx_ctrl.rssi;
+  evt.channel = pkt->rx_ctrl.channel;
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  xQueueSendFromISR(macQueue, &evt, &xHigherPriorityTaskWoken);
   
   // Log packet info
   char src[18], dst[18], bssid[18];
   macToString(hdr->addr2, src);
   macToString(hdr->addr1, dst);
-  macToString(hdr->addr3, bssid);
+  macToString(actualBSSID, bssid); 
 
   char result[256];
   snprintf(result, sizeof(result), "LOG|msg=[%7lu] RSSI:%3d CH:%2d %10s SRC:%s DST:%s BSSID:%s",
@@ -157,14 +129,109 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   ESP_LOGI(TAG, "%s", result);
 
   BleManager_SendStatus(result);
+}
+
+// ========== SNIFFER CALLBACK ==========
+void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+  if(!snifferActive) return;
+
+  // Increment total packet seen
+  totalPackets++;
   
-  // Show SSID for beacons/probe responses
-  if (frameSubtype == 8 || frameSubtype == 5) {
-      char ssid[33] = {0};
-      if (extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid) > 0) {
-          ESP_LOGI(TAG, "  SSID: %s", ssid);
+  wifi_promiscuous_pkt_t *pkt = (wifi_promiscuous_pkt_t*)buf;
+  const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t*)pkt->payload;
+  const wifi_ieee80211_mac_hdr_t *hdr = &ipkt->hdr;
+
+  uint16_t frameCtrl = hdr->frame_ctrl;
+  uint8_t frameType = (frameCtrl & 0x0C) >> 2;
+  uint8_t frameSubtype = (frameCtrl & 0xF0) >> 4;
+
+  // Management frame (type 0)
+  if (frameType == 0) {
+      // Association Request (0) or Reassociation Request (2)
+      if (frameSubtype == 0 || frameSubtype == 2) {
+          // addr3 is the BSSID, addr2 is the client MAC
+          if (macMatches(hdr->addr3, targetBSSID)) {
+              char clientMAC[18];
+              macToString(hdr->addr2, clientMAC);
+              ESP_LOGI(TAG, "Device joined network: %s", clientMAC);
+              logDevice(pkt, hdr->addr3, hdr->addr2);
+          }
+      } else if(frameSubtype == 4) { // Probe request
+        char ssid[33] = {0};
+        int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
+        
+        // Only if they're specifically looking for your network (not broadcast)
+        if (ssidLen > 0 && strcmp(ssid, targetSSID) == 0) {
+            // Potential device, but not confirmed connected
+            logDevice(pkt, hdr->addr3, hdr->addr2);
+        }
+      } else if(frameSubtype == 5) { // Probe response
+        char ssid[33] = {0};
+        int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
+        
+        // Only if they're specifically looking for your network (not broadcast)
+        if (ssidLen > 0 && strcmp(ssid, targetSSID) == 0) {
+            // Potential device, but not confirmed connected
+            logDevice(pkt, hdr->addr3, hdr->addr2);
+        }
       }
   }
+  else if(frameType == 2) { // Data
+    // Check if BSSID matches target network
+    if(strlen(targetBSSID) > 0) {
+      // For ToDS frames: addr1 is BSSID (client -> AP)
+      // For FromDS frames: addr2 is BSSID (AP -> client)
+      bool toDS = (frameCtrl & 0x0100);
+      bool fromDS = (frameCtrl & 0x0200);
+      
+      uint8_t *bssid = NULL;
+      uint8_t *clientMAC = NULL;
+      
+      if (toDS && !fromDS) {
+          // Client to AP
+          bssid = hdr->addr1;
+          clientMAC = hdr->addr2;
+
+          char tempMAC[18];
+          macToString(clientMAC, tempMAC);
+          ESP_LOGI(TAG, "ToDS frame - Client MAC: %s", tempMAC);
+      } else if (!toDS && fromDS) {
+          // AP to Client
+          bssid = hdr->addr2;
+          clientMAC = hdr->addr1;
+
+          char tempMAC[18];
+          macToString(clientMAC, tempMAC);
+          ESP_LOGI(TAG, "FromDS frame - Client MAC: %s", tempMAC);
+      } else {
+          ESP_LOGI(TAG, "WDS/AdHoc frame - toDS:%d fromDS:%d", toDS, fromDS);
+          return; // WDS or adhoc, skip
+      }
+
+      // if(!macMatches(bssid, targetBSSID)) {
+      //   return;
+      // }
+
+      logDevice(pkt, bssid, clientMAC);
+    }
+  }
+  else {
+    return;
+  }
+
+  
+
+
+
+  
+  // Show SSID for beacons/probe responses
+  // if (frameSubtype == 8 || frameSubtype == 5) {
+  //     char ssid[33] = {0};
+  //     if (extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid) > 0) {
+  //         ESP_LOGI(TAG, "  SSID: %s", ssid);
+  //     }
+  // }
 }
 
 bool setWifiParameters(const char *ssid, const char *bssid, int channel){
@@ -251,6 +318,14 @@ void stopWiFiSniffer() {
   ESP_LOGI(TAG, "WiFi Sniffer STOPPED");
 }
 
+void onBleDisconnect() {
+    stopWiFiSniffer();
+    stop_deauth_attack();
+    clearMacList();
+    memset(targetBSSID, 0, sizeof(targetBSSID));
+    memset(targetSSID, 0, sizeof(targetSSID));
+}
+
 void printWiFiStats() {
     if (!snifferActive) return;
     
@@ -264,15 +339,21 @@ void printWiFiStats() {
     }
 }
 
+void reset_wifi_stats_variables() {
+  lastStatsTime = 0;
+  totalPackets = 0;
+  filteredPackets = 0;
+  ESP_LOGI(TAG, "WIFI stat varibles have been reset");
+  BleManager_SendStatus("WIFI_STATS_VARIBLES_RESET");
+}
+
 // WIFI intialization
 void WifiManager_Init() {
 
-    ESP_LOGI(TAG, "Initializing WiFi Sniffer...");
-    // ESP_LOGI(TAG, "Target SSID: %s", targetSSID);
-    // ESP_LOGI(TAG, "Target BSSID: %s", targetBSSID);
-    // ESP_LOGI(TAG, "Channel: %d", targetChannel);
-    ESP_LOGI(TAG, "Filters: Beacons=%d Data=%d Control=%d",
-             showBeacons, showData, showControl);
+  ESP_LOGI(TAG, "Initializing WiFi Sniffer...");
+  // ESP_LOGI(TAG, "Target SSID: %s", targetSSID);
+  // ESP_LOGI(TAG, "Target BSSID: %s", targetBSSID);
+  // ESP_LOGI(TAG, "Channel: %d", targetChannel);
 
   // Initialize WiFi in station mode
   vTaskDelay(pdMS_TO_TICKS(100));

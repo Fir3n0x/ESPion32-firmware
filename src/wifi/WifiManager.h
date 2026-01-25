@@ -10,5 +10,7 @@ bool startWiFiSniffer(const char *ssid, const char *bssid, int channel);
 void stopWiFiSniffer(void);
 void printWiFiStats(void);
 void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+void reset_wifi_stats_variables();
+void onBleDisconnect();
 
 #endif

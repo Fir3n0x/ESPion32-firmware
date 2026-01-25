@@ -66,6 +66,13 @@ static void add_seen_mac(const char *mac)
     }
 }
 
+void reset_mac() {
+    seen_count = 0;
+    memset(seen_macs, 0, sizeof(seen_macs));
+    ESP_LOGI(TAG, "MAC varibles have been reset");
+    BleManager_SendStatus("MAC_VARIBLES_RESET");
+}
+
 
 
 // struct gatts_profile_inst {
@@ -344,6 +351,8 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
             conn_id_global = 0xFFFF;
             client_connected = false;
             esp_ble_gap_start_advertising(&adv_params);
+            // Reset wifi variables and stop all attacks
+            onBleDisconnect();
             // blink
             bleClientDisconnected();
             break;
@@ -438,6 +447,7 @@ void BleManager_SendStatus(const char *msg) {
     
     if (!client_connected || gatt_if_global == ESP_GATT_IF_NONE) {
         ESP_LOGW(TAG, "No client connected");
+        stop_all_attacks();
         return;
     }
 

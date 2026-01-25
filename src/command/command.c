@@ -9,10 +9,24 @@ void handle_command(char *cmd_raw) {
     cmd[sizeof(cmd)-1] = '\0';
 
     char *type = strtok(cmd, "|");
+
+    if(!type) {
+        ESP_LOGW(TAG, "Invalid command format [type]");
+        BleManager_SendStatus("BAD_FORMAT");
+        return;
+    }
+
+    // IF RESET_ALL TYPE SKIP THE REST FOR EXAMPLE WHEN SWITCHING NETWORK
+    if(strcmp(type, "RESET_ALL") == 0) {
+        // Reset all variables
+
+        return;
+    }
+
     char *action = strtok(NULL, "|");
     
-    if(!type || !action) {
-        ESP_LOGW(TAG, "Invalid command format");
+    if(!action) {
+        ESP_LOGW(TAG, "Invalid command format [action]");
         BleManager_SendStatus("BAD_FORMAT");
         return;
     }
@@ -27,6 +41,12 @@ void handle_command(char *cmd_raw) {
         char *ssid = strtok(NULL, "|");
         char *channel = strtok(NULL, "|");
         handle_beacon_command(action, ssid, channel);
+    }
+    else if(strcmp(type, "MAC") == 0) {
+        handle_mac_command(action);
+    }
+    else if(strcmp(type, "WIFI") == 0) {
+        handle_wifi_command(action);
     }
     else {
         ESP_LOGW(TAG, "Unknown command type: %s", type);
@@ -128,4 +148,24 @@ void handle_deauth_command(char *action) {
 
 void handle_beacon_command(char *action, char *param1, char *param2) {
     return;
+}
+
+void handle_mac_command(char *action) {
+    if(strcmp(action, "CLEAR") == 0) {
+        ESP_LOGI(TAG, "MAC will be cleared");
+        reset_mac();
+    } else {
+        ESP_LOGW(TAG, "Bad Command for MAC type");
+        BleManager_SendStatus("MAC_UNKNOWN_ACTION");
+    }
+}
+
+void handle_wifi_command(char *action) {
+    if(strcmp(action, "CLEAR") == 0) {
+        ESP_LOGI(TAG, "WIFI stat variables will be reset");
+        reset_wifi_stats_variables();
+    } else {
+        ESP_LOGW(TAG, "Bad Command for WIFI type");
+        BleManager_SendStatus("WIFI_UNKNOWN_ACITON");
+    }
 }
