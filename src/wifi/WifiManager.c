@@ -1,6 +1,7 @@
 #include "WifiManager.h"
 #include "common/SharedState.h"
 #include "ble/BleManager.h"
+#include "wifi/DeauthAttack.h"
 #include <string.h>
 #include <stdio.h>
 #include "esp_wifi.h"
@@ -122,7 +123,7 @@ void logDevice(wifi_promiscuous_pkt_t *pkt, uint8_t *actualBSSID, uint8_t *clien
   macToString(actualBSSID, bssid); 
 
   char result[256];
-  snprintf(result, sizeof(result), "LOG|msg=[%7lu] RSSI:%3d CH:%2d %10s SRC:%s DST:%s BSSID:%s",
+  snprintf(result, sizeof(result), "LOG|SNIFF|msg=[%7lu] RSSI:%3d CH:%2d %10s SRC:%s DST:%s BSSID:%s",
           filteredPackets, pkt->rx_ctrl.rssi, pkt->rx_ctrl.channel,
           getFrameType(frameType, frameSubtype), src, dst, bssid);
   
@@ -157,25 +158,67 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
               ESP_LOGI(TAG, "Device joined network: %s", clientMAC);
               logDevice(pkt, hdr->addr3, hdr->addr2);
           }
-      } else if(frameSubtype == 4) { // Probe request
-        char ssid[33] = {0};
-        int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
-        
-        // Only if they're specifically looking for your network (not broadcast)
-        if (ssidLen > 0 && strcmp(ssid, targetSSID) == 0) {
-            // Potential device, but not confirmed connected
-            logDevice(pkt, hdr->addr3, hdr->addr2);
-        }
-      } else if(frameSubtype == 5) { // Probe response
-        char ssid[33] = {0};
-        int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
-        
-        // Only if they're specifically looking for your network (not broadcast)
-        if (ssidLen > 0 && strcmp(ssid, targetSSID) == 0) {
-            // Potential device, but not confirmed connected
-            logDevice(pkt, hdr->addr3, hdr->addr2);
+      }
+       // Association response (1) or Reassociation response (3)
+      else if(frameSubtype == 1 || frameSubtype == 3) {
+        if (macMatches(hdr->addr2, targetBSSID)) { // AP check == addre2
+          logDevice(pkt, hdr->addr2, hdr->addr1);
         }
       }
+      // Disassociation (10)
+      else if (frameSubtype == 10) {
+          if (macMatches(hdr->addr3, targetBSSID)) {
+              ESP_LOGI(TAG, "Client leaving: addr1=%02x:%02x... addr2=%02x:%02x...", 
+                       hdr->addr1[0], hdr->addr1[1], hdr->addr2[0], hdr->addr2[1]);
+          }
+      }
+       // Authentication (11)
+      else if(frameSubtype == 11) {
+        if (macMatches(hdr->addr3, targetBSSID)) {
+          logDevice(pkt, hdr->addr3, hdr->addr2);
+        }
+      }
+      // Deauthentication (12)
+      else if (frameSubtype == 12) {
+          if (macMatches(hdr->addr3, targetBSSID)) {
+              char mac1[18], mac2[18];
+              macToString(hdr->addr1, mac1);
+              macToString(hdr->addr2, mac2);
+              ESP_LOGI(TAG, "Deauthentication - addr1:%s addr2:%s", mac1, mac2);
+              // client connected can be either addr1 or addr2
+              logDevice(pkt, hdr->addr3, hdr->addr2);
+          }
+      }
+      // Beacon (8)
+      // else if (frameSubtype == 8) {
+      //     if (macMatches(hdr->addr3, targetBSSID)) {
+      //         // Les beacons peuvent contenir des infos sur les clients connectés
+      //         // Mais ici on log juste pour debug
+      //         ESP_LOGI(TAG, "Beacon from target AP");
+      //     }
+      // }
+      // // Probe request (4)
+      // else if(frameSubtype == 4) {
+      //   char ssid[33] = {0};
+      //   int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
+        
+      //   // Only if they're specifically looking for your network (not broadcast)
+      //   if (ssidLen > 0 && strcmp(ssid, targetSSID) == 0) {
+      //       // Potential device, but not confirmed connected
+      //       logDevice(pkt, hdr->addr3, hdr->addr2);
+      //   }
+      // }
+      // // Probe response (5)
+      // else if(frameSubtype == 5) {
+      //   char ssid[33] = {0};
+      //   int ssidLen = extractSSID(pkt->payload, pkt->rx_ctrl.sig_len, ssid);
+        
+      //   // Only if they're specifically looking for your network (not broadcast)
+      //   if (ssidLen > 0 && strcmp(ssid, targetSSID) == 0) {
+      //       // Potential device, but not confirmed connected
+      //       logDevice(pkt, hdr->addr3, hdr->addr2);
+      //   }
+      // }
   }
   else if(frameType == 2) { // Data
     // Check if BSSID matches target network
@@ -193,25 +236,38 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
           bssid = hdr->addr1;
           clientMAC = hdr->addr2;
 
-          char tempMAC[18];
-          macToString(clientMAC, tempMAC);
-          ESP_LOGI(TAG, "ToDS frame - Client MAC: %s", tempMAC);
+          // char tempMAC[18];
+          // macToString(clientMAC, tempMAC);
+          // ESP_LOGI(TAG, "ToDS frame - Client MAC: %s", tempMAC);
       } else if (!toDS && fromDS) {
           // AP to Client
           bssid = hdr->addr2;
           clientMAC = hdr->addr1;
 
-          char tempMAC[18];
-          macToString(clientMAC, tempMAC);
-          ESP_LOGI(TAG, "FromDS frame - Client MAC: %s", tempMAC);
+          // char tempMAC[18];
+          // macToString(clientMAC, tempMAC);
+          // ESP_LOGI(TAG, "FromDS frame - Client MAC: %s", tempMAC);
       } else {
-          ESP_LOGI(TAG, "WDS/AdHoc frame - toDS:%d fromDS:%d", toDS, fromDS);
+          // ESP_LOGI(TAG, "WDS/AdHoc frame - toDS:%d fromDS:%d", toDS, fromDS);
           return; // WDS or adhoc, skip
       }
 
-      // if(!macMatches(bssid, targetBSSID)) {
-      //   return;
+      // Filter multicast/broadcast
+      // if (clientMAC[0] & 0x01) {
+      //     return;
       // }
+
+      if(!macMatches(bssid, targetBSSID)) {
+        return;
+      }
+
+      // static uint32_t dataPacketCount = 0;
+      // dataPacketCount++;
+      
+      // char tempMAC[18];
+      // macToString(clientMAC, tempMAC);
+      // ESP_LOGI(TAG, "Data frame #%lu - Client: %s [ToDS:%d FromDS:%d]", 
+      //        dataPacketCount, tempMAC, toDS, fromDS);
 
       logDevice(pkt, bssid, clientMAC);
     }
@@ -321,7 +377,7 @@ void stopWiFiSniffer() {
 void onBleDisconnect() {
     stopWiFiSniffer();
     stop_deauth_attack();
-    clearMacList();
+    reset_mac();
     memset(targetBSSID, 0, sizeof(targetBSSID));
     memset(targetSSID, 0, sizeof(targetSSID));
 }

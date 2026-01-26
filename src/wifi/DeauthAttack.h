@@ -3,8 +3,11 @@
 
 #include <stdint.h>
 
-// Start deauth attack with specified number of packet bursts
-void start_deauth_attack(int packet_count);
+// Start deauth attack
+void start_deauth_attack(char *target, char *ap, int channel);
+
+// Stop deauth attack
+void stop_deauth_attack();
 
 // Update target AP and client MACs
 void set_deauth_targets(const uint8_t *ap, const uint8_t *client);
@@ -12,7 +15,7 @@ void set_deauth_targets(const uint8_t *ap, const uint8_t *client);
 // Set channel for deauth attack
 void set_deauth_channel(uint8_t channel);
 
-// Test if target has PMF (802.11w) protection
-void test_pmf_protection(void);
+// Launch deauth attack
+void send_deauth_packets(const uint8_t *ap_mac, const uint8_t *client_mac);
 
 #endif // DEAUTH_ATTACK_H

@@ -21,7 +21,7 @@
 
 #define PROFILE_NUM      1
 #define PROFILE_APP_IDX  0
-#define DEVICE_NAME      "Minimap32"
+#define DEVICE_NAME      "GoPro 8690"
 #define ESP_APP_ID       0x55
 #define SVC_INST_ID      0
 
@@ -70,7 +70,7 @@ void reset_mac() {
     seen_count = 0;
     memset(seen_macs, 0, sizeof(seen_macs));
     ESP_LOGI(TAG, "MAC varibles have been reset");
-    BleManager_SendStatus("MAC_VARIBLES_RESET");
+    BleManager_SendStatus("LOG|SNIFF|MAC_VARIBLES_RESET");
 }
 
 
@@ -362,6 +362,16 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
             ESP_LOGI(TAG, "WRITE_EVT handle=%d, need_rsp=%d, is_prep=%d",
                      param->write.handle, param->write.need_rsp, param->write.is_prep);
 
+            // CRITICAL: Send response for CCCD and CMD writes
+            if (param->write.need_rsp) {
+                esp_ble_gatts_send_response(gatts_if, 
+                                           param->write.conn_id,
+                                           param->write.trans_id,
+                                           ESP_GATT_OK,
+                                           NULL);
+                ESP_LOGI(TAG, "Write response sent");
+            }
+
             if (param->write.handle == cmd_handle) {
                 // Safely handle command
                 char cmd[256] = {0};
@@ -416,15 +426,6 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
                 handle_command(cmd);
             }
             
-            // CRITICAL: Send response for CCCD and CMD writes
-            if (param->write.need_rsp) {
-                esp_ble_gatts_send_response(gatts_if, 
-                                           param->write.conn_id,
-                                           param->write.trans_id,
-                                           ESP_GATT_OK,
-                                           NULL);
-                ESP_LOGI(TAG, "Write response sent");
-            }
             break;
 
         default:
@@ -447,7 +448,7 @@ void BleManager_SendStatus(const char *msg) {
     
     if (!client_connected || gatt_if_global == ESP_GATT_IF_NONE) {
         ESP_LOGW(TAG, "No client connected");
-        stop_all_attacks();
+        onBleDisconnect();
         return;
     }
 
@@ -489,7 +490,7 @@ void bleSenderTask(void* param) {
 
             char payload[64];
             snprintf(payload, sizeof(payload),
-                "MAC|mac=%s|rssi=%d|ch=%d",
+                "MAC|SNIFF|mac=%s|rssi=%d|ch=%d",
                 macStr, evt.rssi, evt.channel);
 
             ESP_LOGI(TAG, "BLE NOTIFY: %s", payload);

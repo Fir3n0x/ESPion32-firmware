@@ -7,6 +7,7 @@
 #include "ble/BleManager.h"
 
 #include <string.h>
+#include <ctype.h>
 #include "esp_wifi.h"
 #include "esp_log.h"
 

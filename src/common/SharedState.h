@@ -13,6 +13,7 @@ typedef struct {
 } mac_event_t;
 
 extern volatile bool snifferActive;
+extern volatile bool deauthActive;
 extern volatile uint32_t totalPackets;
 extern volatile uint32_t filteredPackets;
 extern volatile QueueHandle_t macQueue;
