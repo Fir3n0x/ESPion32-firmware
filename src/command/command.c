@@ -112,9 +112,7 @@ void handle_sniff_command(char *action){
 
         ESP_LOGI(TAG, "Starting sniffer: SSID = %s, BSSID=%s, CHANNEL=%d", ssid, bssid, channel);
 
-        isAttackActive = true;
         startWiFiSniffer(ssid, bssid, channel);
-        BleManager_SendStatus("LOG|SNIFF|msg=SNIFF_STARTED");
     }
 
     else if (strcmp(action, "STOP") == 0) {

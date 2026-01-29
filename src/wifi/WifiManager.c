@@ -86,15 +86,8 @@ bool macMatches(const uint8_t* mac, const char* target) {
     char macStr[18];
     macToString(mac, macStr);
     
-    // Simple case-insensitive compare
-    for (int i = 0; i < 17; i++) {
-        char a = macStr[i];
-        char b = target[i];
-        if (a >= 'A' && a <= 'Z') a += 32;  // to lowercase
-        if (b >= 'A' && b <= 'Z') b += 32;
-        if (a != b) return false;
-    }
-    return true;
+    // Compare majuscule
+    return strcmp(macStr, target) == 0;
 }
 
 void logDevice(wifi_promiscuous_pkt_t *pkt, uint8_t *actualBSSID, uint8_t *clientMAC) {
@@ -147,6 +140,17 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   uint8_t frameType = (frameCtrl & 0x0C) >> 2;
   uint8_t frameSubtype = (frameCtrl & 0xF0) >> 4;
 
+  // ✅ DEBUG: Log tous les 100 paquets pour voir ce qu'on capture
+  if (totalPackets % 100 == 0) {
+      char addr1[18], addr2[18], addr3[18];
+      macToString(hdr->addr1, addr1);
+      macToString(hdr->addr2, addr2);
+      macToString(hdr->addr3, addr3);
+      ESP_LOGI(TAG, "PKT#%lu Type:%d Sub:%d | A1:%s A2:%s A3:%s | Target:%s", 
+               totalPackets, frameType, frameSubtype, 
+               addr1, addr2, addr3, targetBSSID);
+  }
+
   // Management frame (type 0)
   if (frameType == 0) {
       // Association Request (0) or Reassociation Request (2)
@@ -164,7 +168,17 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
         if (macMatches(hdr->addr2, targetBSSID)) { // AP check == addre2
           logDevice(pkt, hdr->addr2, hdr->addr1);
         }
-      }
+      } // Probe request (4)
+      // else if(frameSubtype == 4) {
+      //   if(macMatches(hdr->addr3, targetBSSID)) {
+      //     logDevice(pkt, hdr->addr3, hdr->addr2);
+      //   }
+      // } // Probe response (5)
+      // else if(frameSubtype == 5) {
+      //   if(macMatches(hdr->addr2, targetBSSID)) {
+      //     logDevice(pkt, hdr->addr2, hdr->addr1);
+      //   }
+      // }
       // Disassociation (10)
       else if (frameSubtype == 10) {
           if (macMatches(hdr->addr3, targetBSSID)) {
@@ -313,8 +327,15 @@ bool setWifiParameters(const char *ssid, const char *bssid, int channel){
             ESP_LOGE(TAG, "Invalid BSSID format: %s", bssid);
             return false;
         }
-        strncpy(targetBSSID, bssid, sizeof(targetBSSID) - 1);
-        targetBSSID[sizeof(targetBSSID) - 1] = '\0';
+        for (int i = 0; i < 17 && bssid[i] != '\0'; i++) {
+            char c = bssid[i];
+            if (c >= 'a' && c <= 'f') {
+                targetBSSID[i] = c - 32;  // Convert to uppercase
+            } else {
+                targetBSSID[i] = c;
+            }
+        }
+        targetBSSID[17] = '\0';
     } else {
         targetBSSID[0] = '\0';
     }
@@ -358,6 +379,8 @@ bool startWiFiSniffer(const char *ssid, const char *bssid, int channel)
         return false;
     }
 
+    BleManager_SendStatus("LOG|SNIFF|msg=SNIFF_STARTED");
+    isAttackActive = true;
     snifferActive = true;
     lastStatsTime = esp_timer_get_time() / 1000;
 
@@ -378,6 +401,7 @@ void onBleDisconnect() {
     stopWiFiSniffer();
     stop_deauth_attack();
     reset_mac();
+    isAttackActive = false;
     memset(targetBSSID, 0, sizeof(targetBSSID));
     memset(targetSSID, 0, sizeof(targetSSID));
 }

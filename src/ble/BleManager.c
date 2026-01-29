@@ -70,7 +70,6 @@ void reset_mac() {
     seen_count = 0;
     memset(seen_macs, 0, sizeof(seen_macs));
     ESP_LOGI(TAG, "MAC varibles have been reset");
-    BleManager_SendStatus("LOG|SNIFF|MAC_VARIBLES_RESET");
 }
 
 
@@ -447,8 +446,7 @@ void BleManager_SendStatus(const char *msg) {
              msg, client_connected, conn_id_global, gatt_if_global, status_handle);
     
     if (!client_connected || gatt_if_global == ESP_GATT_IF_NONE) {
-        ESP_LOGW(TAG, "No client connected");
-        onBleDisconnect();
+        ESP_LOGW(TAG, "No client connected, message dropped");
         return;
     }
 
