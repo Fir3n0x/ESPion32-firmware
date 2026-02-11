@@ -10,6 +10,10 @@
 static const char *TAG = "Main";
 
 void app_main() {
+
+    // Wait for everything to work
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
     ESP_LOGI(TAG, "ESP32 BLE + WiFi Tool Starting...");
     ESP_LOGI(TAG, "Free heap BEFORE init: %lu bytes", esp_get_free_heap_size());
 

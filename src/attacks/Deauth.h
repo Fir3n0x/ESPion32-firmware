@@ -1,7 +1,19 @@
-#ifndef DEAUTH_ATTACK_H
-#define DEAUTH_ATTACK_H
+#ifndef DEAUTH_H
+#define DEAUTH_H
+
+#include "common/SharedState.h"
+#include "ble/BleManager.h"
+#include "wifi/wsl_bypasser/wsl_bypasser.h"
 
 #include <stdint.h>
+#include <string.h>
+#include "esp_wifi.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_coexist.h"
+#include "esp_bt.h"
+#include "esp_timer.h"
 
 // Start deauth attack
 void start_deauth_attack(char *target, char *ap, int channel);
@@ -18,4 +30,4 @@ void set_deauth_channel(uint8_t channel);
 // Launch deauth attack
 void send_deauth_packets(const uint8_t *ap_mac, const uint8_t *client_mac);
 
-#endif // DEAUTH_ATTACK_H
+#endif // DEAUTH_H

@@ -30,7 +30,7 @@ void mac_to_uppercase(char *mac) {
 
 void handle_command(char *cmd_raw) {
 
-    char cmd[128];
+    char cmd[384];
     strncpy(cmd, cmd_raw, sizeof(cmd) - 1);
     cmd[sizeof(cmd)-1] = '\0';
 
@@ -49,6 +49,7 @@ void handle_command(char *cmd_raw) {
         return;
     }
 
+    // Retrieve action parameter (START/STOP)
     char *action = strtok(NULL, "|");
     
     if(!action) {
@@ -64,9 +65,7 @@ void handle_command(char *cmd_raw) {
         handle_deauth_command(action);
     }
     else if(strcmp(type, "BEACON") == 0) {
-        char *ssid = strtok(NULL, "|");
-        char *channel = strtok(NULL, "|");
-        handle_beacon_command(action, ssid, channel);
+        handle_beacon_command(action);
     }
     else if(strcmp(type, "MAC") == 0) {
         handle_mac_command(action);
@@ -182,15 +181,60 @@ void handle_deauth_command(char *action) {
         isAttackActive = false;
         stop_deauth_attack();
         BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_STOPPED");
-    } else {
+    }
+    else {
         ESP_LOGW(TAG, "Unknown DEAUTH action: %s", action);
         BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_UNKNOWN_ACTION");
     }
 }
 
 
-void handle_beacon_command(char *action, char *param1, char *param2) {
-    return;
+void handle_beacon_command(char *action) {
+    if(strcmp(action, "START") == 0) {
+
+        char* param1_channel = strtok(NULL, "|");
+        char* param2_ssids = strtok(NULL, "|");
+
+        int channel = -1;
+        char ssids_raw[384] = {0};
+
+        if(param1_channel && strncmp(param1_channel, "CHANNEL=", 8) == 0) {
+            channel = atoi(param1_channel + 8);
+        }
+
+        if(param2_ssids && strncmp(param2_ssids, "SSIDS=", 6) == 0) {
+            strncpy(ssids_raw, param2_ssids + 6, sizeof(ssids_raw) -1);
+        }
+
+        if(channel <= 0 || strlen(ssids_raw) == 0) {
+            ESP_LOGW(TAG, "channel=%d, strlen(ssids_raw)=%d", channel, strlen(ssids_raw));
+            BleManager_SendStatus("LOG|BEACON|msg=BEACON_BAD_PARAMS");
+            return;
+        }
+
+        // Parse SSIDs separated by ~
+        char *ssid_list[MAX_SSID_BEACON]; // Max SSIDs
+        int ssid_count = 0;
+
+        char *token = strtok(ssids_raw, "~");
+        while(token != NULL && ssid_count < MAX_SSID_BEACON){
+            ssid_list[ssid_count++] = token;
+            token = strtok(NULL, "~");
+        }
+
+        start_beacon_spam(channel, ssid_list, ssid_count);
+
+    }
+    else if(strcmp(action, "STOP") == 0) {
+        ESP_LOGI(TAG, "Stopping beacon spam");
+        isAttackActive = false;
+        stop_beacon_spam();
+        BleManager_SendStatus("LOG|BEACON|msg=BEACON_STOPPED");
+    }
+    else {
+        ESP_LOGW(TAG, "Unknown BEACON action: %s", action);
+        BleManager_SendStatus("LOG|BEACON|msg=BEACON_UNKNOWN_ACTION");
+    }
 }
 
 void handle_mac_command(char *action) {

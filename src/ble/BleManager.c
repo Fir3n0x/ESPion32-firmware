@@ -1,23 +1,5 @@
 #include "BleManager.h"
-#include "common/SharedState.h"
-#include "wifi/WifiManager.h"
-#include "wifi/DeauthAttack.h"
-#include "blinking/blink.h"
-#include "command/command.h"
 
-#include <string.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-#include "esp_system.h"
-#include "esp_log.h"
-#include "esp_bt.h"
-
-#include "esp_gap_ble_api.h"
-#include "esp_gatts_api.h"
-#include "esp_bt_main.h"
-#include "esp_bt_device.h"
-#include "esp_gatt_common_api.h"
 
 #define PROFILE_NUM      1
 #define PROFILE_APP_IDX  0
@@ -72,31 +54,6 @@ void reset_mac() {
     ESP_LOGI(TAG, "MAC varibles have been reset");
 }
 
-
-
-// struct gatts_profile_inst {
-//     esp_gatts_cb_t gatts_cb;
-//     uint16_t gatts_if;
-//     uint16_t app_id;
-//     uint16_t conn_id;
-//     uint16_t service_handle;
-//     esp_gatt_srvc_id_t service_id;
-//     uint16_t char_handle;
-//     esp_bt_uuid_t char_uuid;
-//     esp_gatt_perm_t perm;
-//     esp_gatt_char_prop_t property;
-//     uint16_t descr_handle;
-//     esp_bt_uuid_t descr_uuid;
-// };
-
-// static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
-
-// static struct gatts_profile_inst gl_profile_tab[PROFILE_NUM] = {
-//     [PROFILE_APP_IDX] = {
-//         .gatts_cb = gatts_profile_a_event_handler,
-//         .gatts_if = ESP_GATT_IF_NONE,       // Not get the gatt_if, so initial is ESP_GATT_IF_NONE
-//     },
-// };
 
 // UUIDs 128 bits LSB first
 static const uint8_t SERVICE_UUID[16] = {
@@ -168,43 +125,6 @@ static esp_ble_adv_params_t adv_params = {
     .adv_filter_policy  = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
-// static void gatts_profile_a_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
-//     switch (event) {
-//     case ESP_GATTS_REG_EVT:
-//          ESP_LOGI(TAG, "REGISTER_APP_EVT, status %d, app_id %d", param->reg.status, param->reg.app_id);
-//          gl_profile_tab[PROFILE_APP_IDX].service_id.is_primary = true;
-//          gl_profile_tab[PROFILE_APP_IDX].service_id.id.inst_id = 0x00;
-//          gl_profile_tab[PROFILE_APP_IDX].service_id.id.uuid.len = ESP_UUID_LEN_16;
-//          gl_profile_tab[PROFILE_APP_IDX].service_id.id.uuid.uuid.uuid16 = SERVICE_UUID;
-
-//          esp_ble_gap_set_device_name(DEVICE_NAME);
-// #ifdef CONFIG_SET_RAW_ADV_DATA
-//         esp_err_t raw_adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data, sizeof(raw_adv_data));
-//         if (raw_adv_ret){
-//             ESP_LOGE(GATTS_TAG, "config raw adv data failed, error code = %x ", raw_adv_ret);
-//         }
-//         adv_config_done |= ADV_CONFIG_FLAG;
-//         esp_err_t raw_scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
-//         if (raw_scan_ret){
-//             ESP_LOGE(GATTS_TAG, "config raw scan rsp data failed, error code = %x", raw_scan_ret);
-//         }
-//         adv_config_done |= SCAN_RSP_CONFIG_FLAG;
-// #else
-//         //config adv data
-//         esp_err_t ret = esp_ble_gap_config_adv_data(&adv_data);
-//         if (ret){
-//             ESP_LOGE(TAG, "config adv data failed, error code = %x", ret);
-//         }
-//         adv_config_done |= ADV_CONFIG_FLAG;
-//         //config scan response data
-//         ret = esp_ble_gap_config_adv_data(&scan_rsp_data);
-//         if (ret){
-//             ESP_LOGE(TAG, "config scan response data failed, error code = %x", ret);
-//         }
-//         adv_config_done |= SCAN_RSP_CONFIG_FLAG;;
-// #endif
-//     }
-// }
 
 
 // GAP callback
@@ -373,7 +293,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
 
             if (param->write.handle == cmd_handle) {
                 // Safely handle command
-                char cmd[256] = {0};
+                char cmd[384] = {0};
                 size_t len = param->write.len < sizeof(cmd) - 1 ? param->write.len : sizeof(cmd) - 1;
                 memcpy(cmd, param->write.value, len);
                 cmd[len] = '\0';
@@ -384,44 +304,6 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
                 receiveCommandBlink();
 
                 // Process commands
-                // if (strcmp(cmd, "START") == 0) {
-                //     ESP_LOGI(TAG, "Starting WiFi sniffer...");
-                //     startWiFiSniffer();
-                //     BleManager_SendStatus("STARTED");
-                // } else if (strcmp(cmd, "STOP") == 0) {
-                //     ESP_LOGI(TAG, "Stopping WiFi sniffer...");
-                //     stopWiFiSniffer();
-                //     BleManager_SendStatus("STOPPED");
-                // } else if (strcmp(cmd, "test") == 0) {
-                //     ESP_LOGI(TAG, "Test command received");
-                //     BleManager_SendStatus("TEST_OK");
-                // } else if (strcmp(cmd, "DEAUTH") == 0) {
-                //     if(!isAttackActive){
-                //         ESP_LOGI(TAG, "Starting deauth attack...");
-
-                //         // Set isAttackActive to true
-                //         isAttackActive = true;
-                    
-                //         // Stop sniffer to free up WiFi resources
-                //         extern void stopWiFiSniffer(void);
-                //         stopWiFiSniffer();
-                        
-                //         vTaskDelay(pdMS_TO_TICKS(200));  // Let WiFi stabilize
-                        
-                //         start_deauth_attack(200);  // Send 50 bursts = 300 packets
-                        
-                //         BleManager_SendStatus("DEAUTH_OK");
-                //     } else {
-                //         ESP_LOGI(TAG, "Another attack is already active.");
-                //         ESP_LOGI(TAG, "Could not launch deauth attack. Retry later...");
-
-                //         BleManager_SendStatus("DEAUTH_NOT_OK");
-                //     }
-                    
-                // } else {
-                //     ESP_LOGW(TAG, "Unknown command: %s", cmd);
-                //     BleManager_SendStatus("UNKNOWN_CMD");
-                // }
                 handle_command(cmd);
             }
             
@@ -432,14 +314,6 @@ static void gatts_event_handler(esp_gatts_cb_event_t event,
     }
 }
 
-// void BleManager_SendStatus(const char *msg) {
-//     if(conn_id_global == 0) {
-//         ESP_LOGW(TAG, "No client connected, cannot send status");
-//         return;
-//     }
-
-//     esp_ble_gatts_send_indicate(gatt_if_global, conn_id_global, status_handle, strlen(msg), (uint8_t*)msg, false);
-// }
 
 void BleManager_SendStatus(const char *msg) {
     ESP_LOGI(TAG, "SendStatus: msg='%s', connected=%d, conn_id=%d, gatt_if=%d, handle=%d",
@@ -506,6 +380,10 @@ void bleSenderTask(void* param) {
                 ESP_LOGE(TAG, "Notify failed: %s", esp_err_to_name(err));
             }
         }
+        // if not -> tempo
+        else {
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
     }
 }
 
@@ -563,7 +441,7 @@ void BleManager_Init()
         return;
     }
 
-    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(128);
+    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(384);
     if (local_mtu_ret){
         ESP_LOGE(TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
     }
