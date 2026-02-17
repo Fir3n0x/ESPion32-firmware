@@ -239,9 +239,9 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
       }
 
       // Filter multicast/broadcast
-      // if (clientMAC[0] & 0x01) {
-      //     return;
-      // }
+      if (clientMAC[0] & 0x01) {
+          return;
+      }
 
       if(!macMatches(bssid, targetBSSID)) {
         return;

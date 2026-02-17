@@ -29,7 +29,6 @@ void mac_to_uppercase(char *mac) {
 }
 
 void handle_command(char *cmd_raw) {
-
     char cmd[384];
     strncpy(cmd, cmd_raw, sizeof(cmd) - 1);
     cmd[sizeof(cmd)-1] = '\0';
@@ -66,6 +65,9 @@ void handle_command(char *cmd_raw) {
     }
     else if(strcmp(type, "BEACON") == 0) {
         handle_beacon_command(action);
+    }
+    else if(strcmp(type, "EVILTWIN") == 0) {
+        handle_eviltwin_command(action);
     }
     else if(strcmp(type, "MAC") == 0) {
         handle_mac_command(action);
@@ -109,9 +111,12 @@ void handle_sniff_command(char *action){
             return;
         }
 
-        ESP_LOGI(TAG, "Starting sniffer: SSID = %s, BSSID=%s, CHANNEL=%d", ssid, bssid, channel);
-
-        startWiFiSniffer(ssid, bssid, channel);
+        if(!snifferActive) {
+            ESP_LOGI(TAG, "Starting sniffer: SSID = %s, BSSID=%s, CHANNEL=%d", ssid, bssid, channel);
+            startWiFiSniffer(ssid, bssid, channel);
+        } else{
+            BleManager_SendStatus("LOG|SNIFF|msg=SNIFF_ALREADY_RUNNING");
+        }
     }
 
     else if (strcmp(action, "STOP") == 0) {
@@ -172,11 +177,64 @@ void handle_deauth_command(char *action) {
             return;
         }
 
-        BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_INITIALIZING...");
-        vTaskDelay(pdMS_TO_TICKS(500));
-        start_deauth_attack(target, ap, channel);
+        if(!deauthActive) {
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_INITIALIZING...");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            start_deauth_attack(target, ap, channel);
+        } else{
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_ALREADY_RUNNING");
+        }
     }
+    else if(strcmp(action, "TEST") == 0) {
+        char *param1_targetMac = strtok(NULL, "|");
+        char *param2_apMac = strtok(NULL, "|");
+        char *param3_ch = strtok(NULL, "|");
 
+        char target[18] = {0};
+        char ap[18] = {0};
+        int channel = -1;
+
+        if (param1_targetMac && strncmp(param1_targetMac, "TARGET=", 7) == 0) {
+            strncpy(target, param1_targetMac + 7, sizeof(target) - 1);
+        }
+
+        if (param2_apMac && strncmp(param2_apMac, "AP=", 3) == 0) {
+            strncpy(ap, param2_apMac + 3, sizeof(ap) - 1);
+        }
+
+        if (param3_ch && strncmp(param3_ch, "CHANNEL=", 8) == 0) {
+            channel = atoi(param3_ch + 8);
+        }
+
+        if (!target[0] || !ap[0] || channel <= 0) {
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_BAD_PARAMS");
+            return;
+        }
+
+        // Set to uppercase
+        mac_to_uppercase(target);
+        mac_to_uppercase(ap);
+
+        // Verify mac target
+        if (!isValidMac(target)) {
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_BAD_TARGET_MAC");
+            return;
+        }
+
+        // Verify mac AP
+        if (!isValidMac(ap)) {
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_BAD_AP_MAC");
+            return;
+        }
+
+        if(!deauthActive && !snifferActive) {
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_TEST_INITIALIZING...");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            start_deauth_with_effectiveness_test(target, ap, channel);
+        } else{
+            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_ALREADY_RUNNING");
+        }
+    }
     else if (strcmp(action, "STOP") == 0) {
         isAttackActive = false;
         stop_deauth_attack();
@@ -222,7 +280,11 @@ void handle_beacon_command(char *action) {
             token = strtok(NULL, "~");
         }
 
-        start_beacon_spam(channel, ssid_list, ssid_count);
+        if(!bfsActive) {
+            start_beacon_spam(channel, ssid_list, ssid_count);
+        } else {
+            BleManager_SendStatus("LOG|BEACON|msg=BFS_ALREADY_RUNNING");
+        }
 
     }
     else if(strcmp(action, "STOP") == 0) {
@@ -234,6 +296,36 @@ void handle_beacon_command(char *action) {
     else {
         ESP_LOGW(TAG, "Unknown BEACON action: %s", action);
         BleManager_SendStatus("LOG|BEACON|msg=BEACON_UNKNOWN_ACTION");
+    }
+}
+
+void handle_eviltwin_command(char* action) {
+    if(strcmp(action, "START") == 0) {
+
+        char* param1_method = strtok(NULL, "|");
+        char* param2_name = strtok(NULL, "|");
+
+        int method = -1;
+        char name[30] = {0};
+
+        if(param1_method && strncmp(param1_method, "METHOD=", 7) == 0) {
+            method = atoi(param1_method + 7);
+        }
+
+        if(param2_name && strncmp(param2_name, "NAME=", 5) == 0) {
+            strncpy(name, param2_name + 5, sizeof(name) -1);
+        }
+
+        // start_eviltwin(method, name);
+
+    } else if(strcmp(action, "STOP") == 0) {
+        ESP_LOGI(TAG, "Stopping evil twin");
+        isAttackActive = false;
+        // stop_eviltwin();
+        BleManager_SendStatus("LOG|EVILTWIN|msg=EVILTWIN_STOPPED");
+    }else {
+        ESP_LOGW(TAG, "Unknown EVILTWIN action: %s", action);
+        BleManager_SendStatus("LOG|EVILTWIN|msg=EVILTWIN_UNKNOWN_ACTION");
     }
 }
 

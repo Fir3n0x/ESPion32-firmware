@@ -16,6 +16,7 @@ void handle_command(char *cmd_raw);
 void handle_sniff_command(char *action);
 void handle_deauth_command(char *action);
 void handle_beacon_command(char *action);
+void handle_eviltwin_command(char* action);
 void handle_mac_command(char *action);
 void handle_wifi_command(char *action);
 
