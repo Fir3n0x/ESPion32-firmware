@@ -3,8 +3,8 @@
 
 #include "common/SharedState.h"
 #include "ble/BleManager.h"
-#include "attacks/Sniffer.h"
-#include "attacks/Deauth.h"
+#include "attacks/sniffer/Sniffer.h"
+#include "attacks/deauth/Deauth.h"
 
 #include <string.h>
 #include <stdio.h>

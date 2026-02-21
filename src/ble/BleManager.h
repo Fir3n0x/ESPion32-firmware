@@ -3,7 +3,7 @@
 
 #include "common/SharedState.h"
 #include "wifi/WifiManager.h"
-#include "attacks/Deauth.h"
+#include "attacks/deauth/Deauth.h"
 #include "blinking/blink.h"
 #include "command/command.h"
 #include "wifi/WifiManager.h"

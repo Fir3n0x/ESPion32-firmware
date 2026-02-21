@@ -3,8 +3,11 @@
 
 #include "common/SharedState.h"
 #include "wifi/WifiManager.h"
-#include "attacks/Deauth.h"
-#include "attacks/BFS.h"
+#include "attacks/deauth/Deauth.h"
+#include "attacks/deauth/classic_deauth.h"
+#include "attacks/deauth/test_deauth.h"
+#include "attacks/deauth/steal_deauth.h"
+#include "attacks/bfs/BFS.h"
 #include "ble/BleManager.h"
 
 #include <string.h>
