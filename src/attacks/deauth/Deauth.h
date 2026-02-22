@@ -16,15 +16,7 @@
 #include "esp_timer.h"
 
 // Deauth frame template
-static const uint8_t deauth_frame[] = {
-    0xC0, 0x00, // Frame Control: Deauth (type=0, subtype=12)
-    0x3A, 0x01, // Duration
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // Destination
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Source
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // BSSID
-    0x00, 0x00, // Sequence number
-    0x07, 0x00 // Reason code
-};
+extern const uint8_t deauth_frame[26];
 
 //getter
 uint8_t deauth_get_attack_channel(void);
@@ -42,8 +34,12 @@ void prepare_for_injection(void);
 void restore_wifi_state(void);
 void configure_ble_coexistence(void);
 
+//during attack
+void build_deauth_packet(uint8_t *packet, const uint8_t *dst, const uint8_t *src, const uint8_t *bssid, uint8_t reason);
+esp_err_t send_with_retry(const uint8_t *packet, int max_retries);
+
 //utility
 bool mac_str_to_bytes(const char *mac_str, uint8_t *mac_bytes);
-
+uint16_t deauth_next_seq(void); // getter seq number shared
 
 #endif // DEAUTH_H

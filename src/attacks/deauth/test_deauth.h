@@ -17,6 +17,10 @@ typedef struct {
     uint32_t reassoc_post_attack;
     uint32_t probe_req_post_attack;
     uint32_t deauth_post_attack;
+    uint32_t beacon_baseline; // range AP
+    bool pmf_checked;
+    bool pmf_capable;     
+    bool pmf_required; 
     bool likely_successful;
     float effectiveness_score;
 } deauth_effectiveness_t;

