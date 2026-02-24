@@ -13,7 +13,7 @@
 #include "esp_timer.h"
 
 #define MAX_SSID_BEACON 20
-#define MAX_SSID_LEN 20
+#define MAX_SSID_LENGTH 20
 
 void bfs_attack(int channel);
 void start_beacon_spam(int channel, char** ssid_list, int ssid_count);

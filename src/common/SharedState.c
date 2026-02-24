@@ -2,6 +2,7 @@
 
 volatile bool snifferActive = false;
 volatile bool deauthActive = false;
+volatile bool captureActive = false;
 volatile bool bfsActive = false;
 volatile uint32_t totalPackets = 0;
 volatile uint32_t filteredPackets = 0;

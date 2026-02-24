@@ -15,7 +15,7 @@ const bool wpa2 = true; // WPA2 networks
 
 // Attack variables
 static uint8_t attack_channel = -1;
-static char ssids[MAX_SSID_BEACON][MAX_SSID_LEN];
+static char ssids[MAX_SSID_BEACON][MAX_SSID_LENGTH];
 static int current_ssid_count = 0;
 uint8_t macAddr[6];
 
@@ -201,7 +201,7 @@ void bfs_attack(int channel) {
         char *current_ssid = ssids[index];
 
         size_t ssidLen = strlen(current_ssid);
-        if (ssidLen > MAX_SSID_LEN) ssidLen = MAX_SSID_LEN;
+        if (ssidLen > MAX_SSID_LENGTH) ssidLen = MAX_SSID_LENGTH;
 
         // Generate a new mac
         generateRandomMac();
@@ -333,8 +333,8 @@ void set_bfs_ssid_list(char** ssid_list, int ssid_count) {
 
     for(int i = 0; i<current_ssid_count; i++) {
         if(ssid_list[i] != NULL) {
-            strncpy(ssids[i], ssid_list[i], MAX_SSID_LEN - 1);
-            ssids[i][MAX_SSID_LEN - 1] = '\0';
+            strncpy(ssids[i], ssid_list[i], MAX_SSID_LENGTH - 1);
+            ssids[i][MAX_SSID_LENGTH - 1] = '\0';
         } else {
             ssids[i][0] = '\0';
         }

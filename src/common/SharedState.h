@@ -32,6 +32,7 @@ typedef struct {
 // Global variables
 extern volatile bool snifferActive;
 extern volatile bool deauthActive;
+extern volatile bool captureActive;
 extern volatile bool bfsActive;
 extern volatile uint32_t totalPackets;
 extern volatile uint32_t filteredPackets;

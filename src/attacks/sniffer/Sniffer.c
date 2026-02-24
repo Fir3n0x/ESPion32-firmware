@@ -52,17 +52,17 @@ int extractSSID(const uint8_t* payload, uint16_t len, char* ssid_out) {
 }
 
 // Compare MAC addresses (case-insensitive)
-bool macMatches(const uint8_t* mac, const char* target) {
+bool macMatches(const uint8_t* mac, const volatile char* target) {
     if (target == NULL || target[0] == '\0') return true;
     
     char macStr[18];
     macToString(mac, macStr);
     
     // Compare majuscule
-    return strcmp(macStr, target) == 0;
+    return strcmp(macStr, (const char*)target) == 0;
 }
 
-void logDevice(wifi_promiscuous_pkt_t *pkt, uint8_t *actualBSSID, uint8_t *clientMAC) {
+void logDevice(wifi_promiscuous_pkt_t *pkt, const uint8_t *actualBSSID, const uint8_t *clientMAC) {
   // Retrieve structure
   const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t*)pkt->payload;
   const wifi_ieee80211_mac_hdr_t *hdr = &ipkt->hdr;
@@ -208,14 +208,14 @@ void snifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   }
   else if(frameType == 2) { // Data
     // Check if BSSID matches target network
-    if(strlen(targetBSSID) > 0) {
+    if(strlen((const char*)targetBSSID) > 0) {
       // For ToDS frames: addr1 is BSSID (client -> AP)
       // For FromDS frames: addr2 is BSSID (AP -> client)
       bool toDS = (frameCtrl & 0x0100);
       bool fromDS = (frameCtrl & 0x0200);
       
-      uint8_t *bssid = NULL;
-      uint8_t *clientMAC = NULL;
+      const uint8_t *bssid = NULL;
+      const uint8_t *clientMAC = NULL;
       
       if (toDS && !fromDS) {
           // Client to AP

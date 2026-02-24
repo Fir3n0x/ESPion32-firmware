@@ -15,7 +15,7 @@ bool setWifiParameters(const char *ssid, const char *bssid, int channel){
 
     // Copy SSID (optional)
     if (ssid && ssid[0] != '\0') {
-        strncpy(targetSSID, ssid, sizeof(targetSSID) - 1);
+        strncpy((char*)targetSSID, ssid, sizeof(targetSSID) - 1);
         targetSSID[sizeof(targetSSID) - 1] = '\0';
     } else {
         targetSSID[0] = '\0';
@@ -58,8 +58,8 @@ void onBleDisconnect() {
     stop_deauth_attack();
     reset_mac();
     isAttackActive = false;
-    memset(targetBSSID, 0, sizeof(targetBSSID));
-    memset(targetSSID, 0, sizeof(targetSSID));
+    memset((void*)targetBSSID, 0, sizeof(targetBSSID));
+    memset((void*)targetSSID, 0, sizeof(targetSSID));
 }
 
 // WIFI intialization
