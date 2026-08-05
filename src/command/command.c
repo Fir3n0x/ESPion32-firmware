@@ -184,19 +184,35 @@ void handle_deauth_command(char *action) {
         }
 
         if(!deauthActive) {
-            // Attack Mode (1 = Deauth classic, 2 = Steal Auth Packet for handshake cracking)
+            // ATTACKMODE :
+            //   1 = deauth classique (déconnexion continue, sans capture)
+            //   2 = capture handshake par deauth + reconnexion  (CAPTURE_DEAUTH)
+            //   3 = capture passive (sans deauth)               (CAPTURE_PASSIVE)
+            //   4 = capture PMKID                               (CAPTURE_PMKID)
             if(attackMode == 1) {
                 BleManager_SendStatus("LOG|DEAUTH|msg=CLASSIC_DEAUTH_INITIALIZING...");
                 vTaskDelay(pdMS_TO_TICKS(500));
                 start_deauth_attack(target, ap, channel);
+                BleManager_SendStatus("STATUS|DEAUTH|value=STARTED");
             } else if (attackMode == 2) {
                 BleManager_SendStatus("LOG|DEAUTH|msg=STEAL_HANDSHAKE_DEAUTH_INITIALIZING...");
                 vTaskDelay(pdMS_TO_TICKS(500));
-                start_deauth_steal_attack(target, ap, channel);
+                start_deauth_steal_attack(target, ap, channel, CAPTURE_DEAUTH);
+                BleManager_SendStatus("STATUS|DEAUTH|value=STARTED");
+            } else if (attackMode == 3) {
+                BleManager_SendStatus("LOG|DEAUTH|msg=PASSIVE_CAPTURE_INITIALIZING...");
+                vTaskDelay(pdMS_TO_TICKS(500));
+                start_deauth_steal_attack(target, ap, channel, CAPTURE_PASSIVE);
+                BleManager_SendStatus("STATUS|DEAUTH|value=STARTED");
+            } else if (attackMode == 4) {
+                BleManager_SendStatus("LOG|DEAUTH|msg=PMKID_CAPTURE_INITIALIZING...");
+                vTaskDelay(pdMS_TO_TICKS(500));
+                start_deauth_steal_attack(target, ap, channel, CAPTURE_PMKID);
+                BleManager_SendStatus("STATUS|DEAUTH|value=STARTED");
             } else {
                 BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_ATTACKMODE_NOT_KNOWN");
             }
-            
+
         } else{
             BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_ALREADY_RUNNING");
         }
@@ -253,8 +269,10 @@ void handle_deauth_command(char *action) {
     }
     else if (strcmp(action, "STOP") == 0) {
         isAttackActive = false;
+        // Arrêt coopératif unifié : fonctionne pour classic, steal et test
         stop_deauth_attack();
         BleManager_SendStatus("LOG|DEAUTH|msg=DEAUTH_STOPPED");
+        BleManager_SendStatus("STATUS|DEAUTH|value=STOPPED");
     }
     else {
         ESP_LOGW(TAG, "Unknown DEAUTH action: %s", action);

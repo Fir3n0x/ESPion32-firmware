@@ -14,32 +14,39 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MAX_CAPTURED_FRAMES  64
+#define MAX_CAPTURED_FRAMES  128
 #define MAX_FRAME_SIZE       512
+#define MAX_STORED_BEACONS   4     // limite de beacons stockés (évite de saturer le buffer)
 
+// EAPOL message bitmask (bit i => message i vu)
+#define EAPOL_M1  (1 << 1)
+#define EAPOL_M2  (1 << 2)
+#define EAPOL_M3  (1 << 3)
+#define EAPOL_M4  (1 << 4)
 
 // Client                    AP
 //   |                        |
-//   |<── Deauth (toi) ──────|   <- We want that
-//   |                        |
-//   |──── Probe Request ────>|
-//   |<── Probe Response ────|
-//   |──── Auth Request ─────>|
-//   |<── Auth Response ─────|
+//   |<── Deauth (nous) ─────|   <- mode DEAUTH uniquement
 //   |──── Assoc Request ────>|
 //   |<── Assoc Response ────|
-//   |                        |
-//   |<── EAPOL MSG 1 ───────|   <- Begin 4-way handshake
-//   |──── EAPOL MSG 2 ──────>|   <- contain MIC -> we look for that
+//   |<── EAPOL MSG 1 ───────|   <- ANonce (+ PMKID éventuel dans le KDE RSN)
+//   |──── EAPOL MSG 2 ──────>|   <- SNonce + MIC
 //   |<── EAPOL MSG 3 ───────|
 //   |──── EAPOL MSG 4 ──────>|
 
+// Mode de capture demandé par l'opérateur
+typedef enum {
+    CAPTURE_PASSIVE = 0,   // écoute seule, aucun deauth
+    CAPTURE_DEAUTH  = 1,   // deauth + capture du handshake au reconnect
+    CAPTURE_PMKID   = 2     // deauth léger + capture du PMKID depuis M1
+} capture_mode_t;
 
 typedef enum {
     STEAL_IDLE,
     STEAL_DEAUTHING,
     STEAL_LISTENING,
     STEAL_HANDSHAKE_CAPTURED,
+    STEAL_PMKID_CAPTURED,
     STEAL_FAILED
 } steal_state_t;
 
@@ -67,8 +74,9 @@ typedef struct __attribute__((packed)) {
     uint32_t orig_len;
 } pcap_record_header_t;
 
-void start_deauth_steal_attack(char *target, char *ap, int channel);
+// mode = capture_mode_t
+void start_deauth_steal_attack(char *target, char *ap, int channel, int mode);
 void stop_deauth_steal_attack(void);
-void steal_export_pcap_ble(void); // send .pcap via ble
+void steal_export_pcap_ble(void); // envoie le .pcap via BLE
 
 #endif

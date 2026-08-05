@@ -374,38 +374,39 @@ void send_deauth_packets_timed(const uint8_t *ap_mac, const uint8_t *client_mac,
 
 
 void start_deauth_with_effectiveness_test(char *target, char *ap, int channel) {
-    // Get deauth task handle
-    TaskHandle_t deauth_task_handle = deauth_get_task_handle();
-
     if (deauthActive) {
         ESP_LOGW(TAG, "Deauth already running");
         return;
     }
-    
-    if (deauth_task_handle != NULL) {
+
+    if (deauth_get_task_handle() != NULL) {
         ESP_LOGW(TAG, "Deauth task already exists");
         return;
     }
-    
+
     uint8_t target_mac[6];
     uint8_t ap_mac[6];
-    
+
     if (!mac_str_to_bytes(target, target_mac) || !mac_str_to_bytes(ap, ap_mac)) {
         ESP_LOGE(TAG, "Invalid MAC format");
         return;
     }
-    
+
     set_deauth_targets(ap_mac, target_mac);
     set_deauth_channel(channel);
-    
+
+    // Enregistre le handle dans le module (le stop coopératif pouvait pas le
+    // retrouver quand il était écrit dans une variable locale).
+    TaskHandle_t handle = NULL;
     xTaskCreate(
         deauth_with_test_task,
         "deauth_test_task",
         8192,
         NULL,
         5,
-        &deauth_task_handle
+        &handle
     );
-    
+    deauth_set_task_handle(handle);
+
     ESP_LOGI(TAG, "Deauth effectiveness test started");
 }

@@ -75,13 +75,15 @@ void deauth_set_task_handle(TaskHandle_t dth) {
 // ======= DEAUTH MANAGEMENT ========
 
 void configure_ble_coexistence(void) {
-    // Prioritize BLE over WiFi during attacks
-    esp_coex_preference_set(ESP_COEX_PREFER_BT);
-    
+    // BALANCE : on rend de l'airtime au WiFi (injection + capture) tout en
+    // gardant le lien BLE de contrôle vivant. PREFER_BT affamait le WiFi et
+    // rendait deauth/capture peu fiables.
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+
     // Disable WiFi power saving to prevent conflicts
     esp_wifi_set_ps(WIFI_PS_NONE);
-    
-    ESP_LOGI(TAG, "BLE coexistence configured");
+
+    ESP_LOGI(TAG, "BLE coexistence configured (BALANCE)");
 }
 
 // Save current WiFi state and switch to AP mode for packet injection

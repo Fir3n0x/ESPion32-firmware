@@ -53,7 +53,11 @@ void app_main() {
     
     // Start WiFi
     ESP_ERROR_CHECK(esp_wifi_start());
-    
+
+    // Désactive le power save : indispensable pour une injection et une
+    // capture promiscuous fiables (sinon la radio dort entre les DTIM).
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
     ESP_LOGI(TAG, "WiFi initialized");
 
     // Create MAC queue

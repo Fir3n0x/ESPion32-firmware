@@ -1,4 +1,5 @@
 #include "BFS.h"
+#include "esp_rom_sys.h"   // esp_rom_delay_us
 
 static const char* TAG = "BFS";
 
@@ -19,36 +20,6 @@ static char ssids[MAX_SSID_BEACON][MAX_SSID_LENGTH];
 static int current_ssid_count = 0;
 uint8_t macAddr[6];
 
-// static const uint8_t packet[] = {
-//     0x80, 0x00, // Frame Control: Management
-//     0x00, 0x00, // Duration
-//     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // Destination
-//     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Source
-//     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // BSSID
-//     0x00, 0x00, // Sequence number
-//     0x07, 0x00 // Reason code
-// };
-
-// int init_ssids() {
-//     int isInit = 0;
-
-//     for(int i = 0; i<MAX_SSID_BEACON; i++) {
-//         ssids[i] = "";
-//     }
-
-//     isInit = 1;
-
-//     return isInit;
-// }
-
-// int change_ssid(const int idx, const char* ssid) {
-//     if(idx > MAX_SSID_BEACON) return 0;
-
-//     ssids[idx] = ssid;
-
-//     return 1;
-// }
-
 uint32_t packetSize = 0;
 uint32_t packetCounter = 0;
 
@@ -62,7 +33,7 @@ uint8_t beaconPacket[109] = {
   // Fixed parameters
   /* 22 - 23 */ 0x00, 0x00, // Fragment & sequence number (will be done by the SDK)
   /* 24 - 31 */ 0x83, 0x51, 0xf7, 0x8f, 0x0f, 0x00, 0x00, 0x00, // Timestamp
-  /* 32 - 33 */ 0xe8, 0x03, // Interval: 0x64, 0x00 => every 100ms - 0xe8, 0x03 => every 1s
+  /* 32 - 33 */ 0x64, 0x00, // Interval: 100ms (meilleure visibilité des SSID)
   /* 34 - 35 */ 0x31, 0x00, // capabilities Tnformation
 
   // Tagged parameters
@@ -122,13 +93,14 @@ static void bfs_task(void *vParameters) {
 }
 
 static void configure_ble_coexistence(void) {
-    // Prioritize BLE over WiFi during attacks
-    esp_coex_preference_set(ESP_COEX_PREFER_BT);
-    
+    // BALANCE : rend de l'airtime au WiFi pour un débit de beacons correct,
+    // tout en gardant le lien BLE. (PREFER_BT bridait fortement l'injection.)
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+
     // Disable WiFi power saving to prevent conflicts
     esp_wifi_set_ps(WIFI_PS_NONE);
-    
-    ESP_LOGI(TAG, "BLE coexistence configured");
+
+    ESP_LOGI(TAG, "BLE coexistence configured (BALANCE)");
 }
 
 // Save current WiFi state and switch to AP mode for beacon
@@ -222,13 +194,21 @@ void bfs_attack(int channel) {
         // Update channel tag
         beaconPacket[82] = channel;
 
-        // Send packet
-        for(int k = 0; k<3; k++) {
+        // Rafale rapide : 2 copies avec un gap fin, puis on passe au SSID
+        // suivant. (Avant : 3 × 100 ms => ~10 beacons/s, bien trop lent.)
+        for(int k = 0; k < 2; k++) {
             if (esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, packetSize, false) == ESP_OK) {
-                ESP_LOGI(TAG, "BFS : packetCounter=%d, ssid=%s", packetCounter, current_ssid);
                 packetCounter++;
             }
-            vTaskDelay(pdMS_TO_TICKS(100));
+            esp_rom_delay_us(500);
+        }
+
+        // Yield 1 tick par SSID pour nourrir watchdog + pile BLE
+        vTaskDelay(pdMS_TO_TICKS(1));
+
+        // Log périodique léger (pas à chaque paquet)
+        if ((packetCounter % 200) == 0) {
+            ESP_LOGI(TAG, "BFS: %lu beacons envoyés", (unsigned long)packetCounter);
         }
     }
 
@@ -291,25 +271,27 @@ void start_beacon_spam(int channel, char** ssid_list, int ssid_count){
 void stop_beacon_spam() {
     if(!bfsActive) return;
 
+    // Arrêt coopératif : la tâche sort de sa boucle (bfsActive) et se nettoie
+    // elle-même. Plus de vTaskDelete en plein esp_wifi_80211_tx.
     bfsActive = false;
 
-    ESP_LOGI(TAG, "Stopping bfs attack...");
+    ESP_LOGI(TAG, "Stopping bfs attack (cooperative)...");
 
-    // Wait for task to finish (max 2 seconds)
     int wait_count = 0;
-    while (bfs_task_handle != NULL && wait_count < 20) {
+    while (bfs_task_handle != NULL && wait_count < 50) {
         vTaskDelay(pdMS_TO_TICKS(100));
         wait_count++;
     }
-    
-    // Force delete if still running
+
+    // Filet de sécurité si la tâche est réellement bloquée
     if (bfs_task_handle != NULL) {
+        ESP_LOGW(TAG, "BFS task did not exit in time, forcing cleanup");
         vTaskDelete(bfs_task_handle);
         bfs_task_handle = NULL;
         restore_wifi_state();
     }
 
-    ESP_LOGI(TAG, "Deauth STOPPED");
+    ESP_LOGI(TAG, "BFS STOPPED");
 
     return;
 }
