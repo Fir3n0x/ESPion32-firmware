@@ -14,8 +14,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MAX_CAPTURED_FRAMES  128
-#define MAX_FRAME_SIZE       512
+// Budget DRAM : captured_frames est un buffer statique de
+// MAX_CAPTURED_FRAMES * (~MAX_FRAME_SIZE) octets. 80 * 384 reste SOUS la taille
+// d'origine (64 * 512) -> pas de dépassement de .dram0.bss, tout en gardant
+// largement de quoi capturer un 4-way handshake (une dizaine de trames suffit).
+// 384 o couvre EAPOL M1-M4 (dont PMKID) et les beacons (l'ESSID est en tête).
+#define MAX_CAPTURED_FRAMES  80
+#define MAX_FRAME_SIZE       384
 #define MAX_STORED_BEACONS   4     // limite de beacons stockés (évite de saturer le buffer)
 
 // EAPOL message bitmask (bit i => message i vu)

@@ -44,6 +44,9 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/).
 - **Acquittements `STATUS`** : `STATUS|DEAUTH|value=STARTED|STOPPED` pour piloter
   l'état côté application.
 - Log explicite quand le buffer de capture est plein.
+- **Budget DRAM** : `captured_frames` dimensionné à `80 × 384 o` (< la taille
+  d'origine `64 × 512 o`) pour éviter le dépassement de `.dram0.bss` au link,
+  tout en gardant de quoi capturer un handshake complet.
 
 ### Phase 2 — Optimisation des autres attaques
 
